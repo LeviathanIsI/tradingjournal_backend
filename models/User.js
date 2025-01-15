@@ -35,6 +35,10 @@ const userSchema = new mongoose.Schema(
         type: String,
         default: "UTC",
       },
+      startingCapital: {
+        type: Number,
+        default: 0,
+      },
     },
     created: {
       type: Date,

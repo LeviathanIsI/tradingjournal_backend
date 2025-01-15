@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { protect } = require("../middleware/authMiddleware");
 
 // Generate JWT
 const generateToken = (id) => {
@@ -83,8 +84,50 @@ router.post("/login", async (req, res) => {
         _id: user._id,
         username: user.username,
         email: user.email,
+        preferences: user.preferences,
         token: generateToken(user._id),
       },
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// @desc    Get user settings
+// @route   GET /api/auth/settings
+// @access  Private
+router.get("/settings", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    res.json({
+      success: true,
+      data: user.preferences,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// @desc    Update user settings
+// @route   PUT /api/auth/settings
+// @access  Private
+router.put("/settings", protect, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { preferences: { ...req.body } },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      data: user.preferences,
     });
   } catch (error) {
     res.status(400).json({
