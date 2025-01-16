@@ -1,19 +1,54 @@
-// backend/routes/tradeRoutes.js
 const express = require("express");
 const router = express.Router();
 const { protect } = require("../middleware/authMiddleware");
 const Trade = require("../models/Trade");
 
-// GET all trades for a user
+// Helper function to calculate P/L for a trade
+const calculateProfitLoss = (trade) => {
+  if (!trade.exitPrice || !trade.exitQuantity) {
+    return {
+      realized: 0,
+      percentage: 0,
+      status: "OPEN",
+    };
+  }
+
+  const entryValue = trade.entryPrice * trade.entryQuantity;
+  const exitValue = trade.exitPrice * trade.exitQuantity;
+  let realizedPL;
+
+  if (trade.type === "LONG") {
+    realizedPL = exitValue - entryValue;
+  } else {
+    realizedPL = entryValue - exitValue;
+  }
+
+  return {
+    realized: Number(realizedPL.toFixed(2)),
+    percentage: Number(((realizedPL / entryValue) * 100).toFixed(2)),
+    status: "CLOSED",
+  };
+};
+
+// GET all trades
 router.get("/", protect, async (req, res) => {
   try {
     const trades = await Trade.find({ user: req.user._id }).sort({
-      createdAt: -1,
+      entryDate: -1,
     });
+
+    const processedTrades = trades.map((trade) => {
+      const pl = calculateProfitLoss(trade.toObject());
+      return {
+        ...trade.toObject(),
+        profitLoss: pl,
+      };
+    });
+
     res.json({
       success: true,
       count: trades.length,
-      data: trades,
+      data: processedTrades,
     });
   } catch (error) {
     res.status(400).json({
@@ -26,67 +61,75 @@ router.get("/", protect, async (req, res) => {
 // GET trade statistics
 router.get("/stats", protect, async (req, res) => {
   try {
-    const stats = await Trade.aggregate([
-      {
-        $match: { user: req.user._id },
-      },
-      {
-        $group: {
-          _id: null,
-          totalTrades: { $sum: 1 },
-          profitableTrades: {
-            $sum: {
-              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
-            },
-          },
-          totalProfit: {
-            $sum: "$profitLoss.realized",
-          },
-          avgProfitPerTrade: {
-            $avg: "$profitLoss.realized",
-          },
-          winRate: {
-            $avg: {
-              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
-            },
-          },
-          maxProfit: { $max: "$profitLoss.realized" },
-          maxLoss: { $min: "$profitLoss.realized" },
-          avgWinningTrade: {
-            $avg: {
-              $cond: [
-                { $gt: ["$profitLoss.realized", 0] },
-                "$profitLoss.realized",
-                null,
-              ],
-            },
-          },
-          avgLosingTrade: {
-            $avg: {
-              $cond: [
-                { $lt: ["$profitLoss.realized", 0] },
-                "$profitLoss.realized",
-                null,
-              ],
-            },
-          },
-        },
-      },
-    ]);
+    const trades = await Trade.find({ user: req.user._id });
 
-    res.json({
-      success: true,
-      data: stats[0] || {
+    const stats = trades.reduce(
+      (acc, trade) => {
+        const pl = calculateProfitLoss(trade.toObject());
+
+        if (pl.status === "CLOSED") {
+          acc.totalTrades++;
+          acc.totalProfit += pl.realized;
+
+          if (pl.realized > 0) {
+            acc.profitableTrades++;
+            acc.totalWinAmount += pl.realized;
+            acc.maxProfit = Math.max(acc.maxProfit, pl.realized);
+          } else {
+            acc.totalLossAmount += Math.abs(pl.realized);
+            acc.maxLoss = Math.min(acc.maxLoss, pl.realized);
+          }
+        }
+
+        return acc;
+      },
+      {
         totalTrades: 0,
         profitableTrades: 0,
         totalProfit: 0,
-        avgProfitPerTrade: 0,
-        winRate: 0,
+        totalWinAmount: 0,
+        totalLossAmount: 0,
         maxProfit: 0,
         maxLoss: 0,
-        avgWinningTrade: 0,
-        avgLosingTrade: 0,
-        profitFactor: 0,
+      }
+    );
+
+    // Calculate derived statistics
+    const winRate =
+      stats.totalTrades > 0
+        ? Number(
+            ((stats.profitableTrades / stats.totalTrades) * 100).toFixed(2)
+          )
+        : 0;
+
+    const avgWinningTrade =
+      stats.profitableTrades > 0
+        ? Number((stats.totalWinAmount / stats.profitableTrades).toFixed(2))
+        : 0;
+
+    const avgLosingTrade =
+      stats.totalTrades - stats.profitableTrades > 0
+        ? Number(
+            (
+              stats.totalLossAmount /
+              (stats.totalTrades - stats.profitableTrades)
+            ).toFixed(2)
+          )
+        : 0;
+
+    const profitFactor =
+      stats.totalLossAmount > 0
+        ? Number((stats.totalWinAmount / stats.totalLossAmount).toFixed(2))
+        : 0;
+
+    res.json({
+      success: true,
+      data: {
+        ...stats,
+        winRate,
+        avgWinningTrade,
+        avgLosingTrade,
+        profitFactor,
       },
     });
   } catch (error) {
@@ -97,42 +140,48 @@ router.get("/stats", protect, async (req, res) => {
   }
 });
 
-// GET single trade
-router.get("/:id", protect, async (req, res) => {
+// POST new trade
+router.post("/", protect, async (req, res) => {
   try {
-    const trade = await Trade.findOne({
-      _id: req.params.id,
-      user: req.user._id,
-    });
+    // Validate required fields
+    const requiredFields = [
+      "symbol",
+      "type",
+      "tradeType",
+      "entryPrice",
+      "entryQuantity",
+      "entryDate",
+    ];
+    const missingFields = requiredFields.filter((field) => !req.body[field]);
 
-    if (!trade) {
-      return res.status(404).json({
+    if (missingFields.length > 0) {
+      return res.status(400).json({
         success: false,
-        error: "Trade not found",
+        error: `Missing required fields: ${missingFields.join(", ")}`,
       });
     }
 
-    res.json({
-      success: true,
-      data: trade,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
+    const tradeData = {
+      ...req.body,
+      user: req.user._id,
+    };
 
-// CREATE new trade
-router.post("/", protect, async (req, res) => {
-  try {
-    req.body.user = req.user._id;
-    const trade = await Trade.create(req.body);
+    // Calculate initial P/L
+    const pl = calculateProfitLoss(tradeData);
+    tradeData.status = pl.status;
+    tradeData.profitLoss = {
+      realized: pl.realized,
+      percentage: pl.percentage,
+    };
+
+    const trade = await Trade.create(tradeData);
 
     res.status(201).json({
       success: true,
-      data: trade,
+      data: {
+        ...trade.toObject(),
+        profitLoss: pl,
+      },
     });
   } catch (error) {
     res.status(400).json({
@@ -157,44 +206,29 @@ router.put("/:id", protect, async (req, res) => {
       });
     }
 
-    // Set status based on exit fields
-    if (req.body.exitPrice && req.body.exitDate) {
-      req.body.status = "CLOSED";
-    } else {
-      req.body.status = "OPEN";
-    }
+    const updatedData = {
+      ...req.body,
+    };
 
-    // Calculate P/L if trade is closed
-    if (req.body.status === "CLOSED") {
-      const entryValue = req.body.entryPrice * req.body.quantity;
-      const exitValue = req.body.exitPrice * req.body.quantity;
+    // Calculate new P/L
+    const pl = calculateProfitLoss(updatedData);
+    updatedData.status = pl.status;
+    updatedData.profitLoss = {
+      realized: pl.realized,
+      percentage: pl.percentage,
+    };
 
-      if (req.body.type === "LONG") {
-        req.body.profitLoss = {
-          realized: exitValue - entryValue,
-          percentage: ((exitValue - entryValue) / entryValue) * 100,
-        };
-      } else {
-        req.body.profitLoss = {
-          realized: entryValue - exitValue,
-          percentage: ((entryValue - exitValue) / entryValue) * 100,
-        };
-      }
-    } else {
-      req.body.profitLoss = {
-        realized: 0,
-        percentage: 0,
-      };
-    }
-
-    trade = await Trade.findByIdAndUpdate(req.params.id, req.body, {
+    trade = await Trade.findByIdAndUpdate(req.params.id, updatedData, {
       new: true,
       runValidators: true,
     });
 
     res.json({
       success: true,
-      data: trade,
+      data: {
+        ...trade.toObject(),
+        profitLoss: pl,
+      },
     });
   } catch (error) {
     res.status(400).json({
@@ -219,7 +253,7 @@ router.delete("/:id", protect, async (req, res) => {
       });
     }
 
-    await Trade.findByIdAndDelete(req.params.id); // Changed from trade.remove()
+    await Trade.findByIdAndDelete(req.params.id);
 
     res.json({
       success: true,

@@ -1,27 +1,4 @@
-// backend/models/Trade.js
 const mongoose = require("mongoose");
-
-const legSchema = new mongoose.Schema({
-  quantity: {
-    type: Number,
-    required: true,
-    min: 0,
-  },
-  price: {
-    type: Number,
-    required: true,
-    min: 0,
-  },
-  date: {
-    type: Date,
-    required: true,
-  },
-  type: {
-    type: String,
-    enum: ["ENTRY", "EXIT"],
-    required: true,
-  },
-});
 
 const tradeSchema = new mongoose.Schema(
   {
@@ -32,8 +9,15 @@ const tradeSchema = new mongoose.Schema(
     },
     symbol: {
       type: String,
-      required: true,
+      required: [true, "Symbol is required"],
       uppercase: true,
+      trim: true,
+      validate: {
+        validator: function (v) {
+          return v && v.length > 0;
+        },
+        message: "Symbol cannot be empty",
+      },
     },
     type: {
       type: String,
@@ -45,12 +29,40 @@ const tradeSchema = new mongoose.Schema(
       required: true,
       enum: ["DAY", "SWING"],
     },
-    legs: [legSchema],
+    // Entry details
+    entryPrice: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    entryQuantity: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+    entryDate: {
+      type: Date,
+      required: true,
+    },
+    // Exit details (optional for open trades)
+    exitPrice: {
+      type: Number,
+      min: 0,
+    },
+    exitQuantity: {
+      type: Number,
+      min: 0,
+    },
+    exitDate: {
+      type: Date,
+    },
+    // Trade status
     status: {
       type: String,
-      enum: ["OPEN", "CLOSED", "PARTIALLY_CLOSED"],
+      enum: ["OPEN", "CLOSED"],
       default: "OPEN",
     },
+    // P/L calculations
     profitLoss: {
       realized: {
         type: Number,
@@ -61,12 +73,8 @@ const tradeSchema = new mongoose.Schema(
         default: 0,
       },
     },
-    strategy: {
-      type: String,
-    },
-    notes: {
-      type: String,
-    },
+    strategy: String,
+    notes: String,
   },
   {
     timestamps: true,
@@ -75,56 +83,47 @@ const tradeSchema = new mongoose.Schema(
 
 // Calculate P/L before saving
 tradeSchema.pre("save", function (next) {
-  // Only calculate if there are exit legs
-  const exitLegs = this.legs.filter((leg) => leg.type === "EXIT");
-  const entryLegs = this.legs.filter((leg) => leg.type === "ENTRY");
+  // Only calculate if we have exit details
+  if (this.exitPrice && this.exitQuantity && this.exitDate) {
+    const entryValue = this.entryPrice * this.entryQuantity;
+    const exitValue = this.exitPrice * this.exitQuantity;
 
-  if (exitLegs.length > 0) {
-    let totalEntryValue = 0;
-    let totalExitValue = 0;
-    let totalEntryQuantity = 0;
-    let totalExitQuantity = 0;
-
-    // Calculate entry totals
-    entryLegs.forEach((leg) => {
-      totalEntryValue += leg.price * leg.quantity;
-      totalEntryQuantity += leg.quantity;
-    });
-
-    // Calculate exit totals
-    exitLegs.forEach((leg) => {
-      totalExitValue += leg.price * leg.quantity;
-      totalExitQuantity += leg.quantity;
-    });
-
-    // Update status based on quantities
-    if (totalExitQuantity === totalEntryQuantity) {
-      this.status = "CLOSED";
-    } else if (totalExitQuantity > 0) {
-      this.status = "PARTIALLY_CLOSED";
+    // Calculate P/L based on trade type
+    if (this.type === "LONG") {
+      this.profitLoss.realized = exitValue - entryValue;
+    } else {
+      this.profitLoss.realized = entryValue - exitValue;
     }
 
-    // Calculate P/L if trade is fully or partially closed
-    if (totalExitQuantity > 0) {
-      if (this.type === "LONG") {
-        this.profitLoss.realized =
-          totalExitValue -
-          (totalExitQuantity / totalEntryQuantity) * totalEntryValue;
-      } else {
-        this.profitLoss.realized =
-          (totalExitQuantity / totalEntryQuantity) * totalEntryValue -
-          totalExitValue;
-      }
+    // Calculate percentage P/L
+    this.profitLoss.percentage = (this.profitLoss.realized / entryValue) * 100;
 
-      this.profitLoss.percentage =
-        (this.profitLoss.realized /
-          ((totalExitQuantity / totalEntryQuantity) * totalEntryValue)) *
-        100;
-    }
+    // Update status
+    this.status = "CLOSED";
+  } else {
+    // Reset P/L and status if exit details are removed
+    this.profitLoss.realized = 0;
+    this.profitLoss.percentage = 0;
+    this.status = "OPEN";
   }
 
   next();
 });
 
+// Validate day trade dates
+tradeSchema.pre("save", function (next) {
+  if (this.tradeType === "DAY" && this.exitDate) {
+    const entryDay = new Date(this.entryDate).toDateString();
+    const exitDay = new Date(this.exitDate).toDateString();
+
+    if (entryDay !== exitDay) {
+      next(new Error("Day trades must have entry and exit on the same day"));
+      return;
+    }
+  }
+  next();
+});
+
 const Trade = mongoose.model("Trade", tradeSchema);
+
 module.exports = Trade;
