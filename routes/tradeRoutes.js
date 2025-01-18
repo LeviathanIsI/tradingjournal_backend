@@ -267,4 +267,129 @@ router.delete("/:id", protect, async (req, res) => {
   }
 });
 
+// In tradeRoutes.js, add a new endpoint for pattern analysis
+router.get("/analysis/patterns", protect, async (req, res) => {
+  try {
+    const patterns = await Trade.aggregate([
+      { $match: { user: req.user._id, status: "CLOSED" } },
+      {
+        $group: {
+          _id: "$pattern",
+          totalTrades: { $sum: 1 },
+          winningTrades: {
+            $sum: {
+              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
+            },
+          },
+          totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+      {
+        $project: {
+          pattern: "$_id",
+          totalTrades: 1,
+          winningTrades: 1,
+          totalProfit: 1,
+          winRate: {
+            $multiply: [{ $divide: ["$winningTrades", "$totalTrades"] }, 100],
+          },
+          averageProfit: {
+            $divide: ["$totalProfit", "$totalTrades"],
+          },
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      data: patterns,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Add time analysis endpoint
+router.get("/analysis/time", protect, async (req, res) => {
+  try {
+    const timeAnalysis = await Trade.aggregate([
+      { $match: { user: req.user._id, status: "CLOSED" } },
+      {
+        $group: {
+          _id: {
+            hour: { $hour: "$entryDate" },
+            session: "$session",
+          },
+          totalTrades: { $sum: 1 },
+          winningTrades: {
+            $sum: {
+              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
+            },
+          },
+          totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+      { $sort: { "_id.hour": 1 } },
+    ]);
+
+    res.json({
+      success: true,
+      data: timeAnalysis,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Add trading streak endpoint
+router.get("/analysis/streak", protect, async (req, res) => {
+  try {
+    const trades = await Trade.find({
+      user: req.user._id,
+      status: "CLOSED",
+    }).sort({ exitDate: 1 });
+
+    let currentStreak = 0;
+    let maxStreak = 0;
+    let previousDate = null;
+    let dailyPL = 0;
+
+    trades.forEach((trade) => {
+      const tradeDate = new Date(trade.exitDate).toDateString();
+
+      if (tradeDate !== previousDate) {
+        if (dailyPL > 0) {
+          currentStreak++;
+          maxStreak = Math.max(maxStreak, currentStreak);
+        } else {
+          currentStreak = 0;
+        }
+        dailyPL = trade.profitLoss.realized;
+        previousDate = tradeDate;
+      } else {
+        dailyPL += trade.profitLoss.realized;
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        currentStreak,
+        maxStreak,
+      },
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

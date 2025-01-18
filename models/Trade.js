@@ -56,13 +56,11 @@ const tradeSchema = new mongoose.Schema(
     exitDate: {
       type: Date,
     },
-    // Trade status
     status: {
       type: String,
       enum: ["OPEN", "CLOSED"],
       default: "OPEN",
     },
-    // P/L calculations
     profitLoss: {
       realized: {
         type: Number,
@@ -73,9 +71,81 @@ const tradeSchema = new mongoose.Schema(
         default: 0,
       },
     },
+    tags: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
+    pattern: {
+      type: String,
+      enum: [
+        "Gap Up",
+        "Gap Down",
+        "Breakout",
+        "Breakdown",
+        "Reversal",
+        "Trend Following",
+        "Range Play",
+        "VWAP Play",
+        "Opening Range",
+        "First Pullback",
+        "RCT",
+        "Other",
+      ],
+      required: false,
+    },
+    mentalState: {
+      focus: {
+        type: Number,
+        min: 1,
+        max: 10,
+      },
+      emotion: {
+        type: String,
+        enum: [
+          "Calm",
+          "Excited",
+          "Fearful",
+          "Confident",
+          "Frustrated",
+          "Neutral",
+        ],
+      },
+      notes: String,
+    },
+    mistakes: [
+      {
+        type: String,
+        enum: [
+          "FOMO",
+          "Sized Too Big",
+          "Poor Entry",
+          "Poor Exit",
+          "No Stop Loss",
+          "Moved Stop Loss",
+          "Break Trading Rules",
+          "Chasing",
+          "Revenge Trading",
+          "Other",
+        ],
+      },
+    ],
+    session: {
+      type: String,
+      enum: ["Pre-Market", "Regular", "After-Hours"],
+      required: true,
+    },
+    violatedRules: [
+      {
+        rule: String,
+        description: String,
+      },
+    ],
     strategy: String,
     notes: String,
   },
+
   {
     timestamps: true,
   }

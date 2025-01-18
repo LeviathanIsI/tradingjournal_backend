@@ -5,6 +5,7 @@ const cors = require("cors");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const tradeRoutes = require("./routes/tradeRoutes");
+const tradePlanRoutes = require("./routes/tradePlanRoutes");
 
 dotenv.config();
 connectDB();
@@ -18,6 +19,7 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/trades", tradeRoutes);
+app.use("/api/trade-plans", tradePlanRoutes);
 
 // Base route
 app.get("/", (req, res) => res.send("API is running..."));
