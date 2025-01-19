@@ -114,6 +114,32 @@ const tradeSchema = new mongoose.Schema(
       },
       notes: String,
     },
+    riskManagement: {
+      accountSize: {
+        type: Number,
+        default: null,
+      },
+      riskPercentage: {
+        type: Number,
+        default: null,
+      },
+      riskAmount: {
+        type: Number,
+        default: null,
+      },
+      maxLoss: {
+        type: Number,
+        default: null,
+      },
+      plannedRR: {
+        type: Number,
+        default: null,
+      },
+      suggestedShares: {
+        type: Number,
+        default: null,
+      },
+    },
     mistakes: [
       {
         type: String,
@@ -134,7 +160,7 @@ const tradeSchema = new mongoose.Schema(
     session: {
       type: String,
       enum: ["Pre-Market", "Regular", "After-Hours"],
-      required: true,
+      default: "Regular",
     },
     violatedRules: [
       {
@@ -145,7 +171,6 @@ const tradeSchema = new mongoose.Schema(
     strategy: String,
     notes: String,
   },
-
   {
     timestamps: true,
   }

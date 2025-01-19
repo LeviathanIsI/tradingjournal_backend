@@ -392,4 +392,109 @@ router.get("/analysis/streak", protect, async (req, res) => {
   }
 });
 
+// GET time-based analysis
+router.get("/analysis/time", protect, async (req, res) => {
+  try {
+    const timeAnalysis = await Trade.aggregate([
+      {
+        $match: {
+          user: req.user._id,
+          status: "CLOSED",
+        },
+      },
+      {
+        $group: {
+          _id: {
+            hour: { $hour: "$entryDate" },
+            session: "$session",
+          },
+          totalTrades: { $sum: 1 },
+          winningTrades: {
+            $sum: {
+              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
+            },
+          },
+          totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+      {
+        $project: {
+          hour: "$_id.hour",
+          session: "$_id.session",
+          totalTrades: 1,
+          winningTrades: 1,
+          totalProfit: 1,
+          winRate: {
+            $multiply: [{ $divide: ["$winningTrades", "$totalTrades"] }, 100],
+          },
+          avgProfit: {
+            $divide: ["$totalProfit", "$totalTrades"],
+          },
+        },
+      },
+      { $sort: { hour: 1 } },
+    ]);
+
+    res.json({
+      success: true,
+      data: timeAnalysis,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// GET session statistics
+router.get("/analysis/sessions", protect, async (req, res) => {
+  try {
+    const sessionStats = await Trade.aggregate([
+      {
+        $match: {
+          user: req.user._id,
+          status: "CLOSED",
+        },
+      },
+      {
+        $group: {
+          _id: "$session",
+          totalTrades: { $sum: 1 },
+          winningTrades: {
+            $sum: {
+              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
+            },
+          },
+          totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+      {
+        $project: {
+          session: "$_id",
+          totalTrades: 1,
+          winningTrades: 1,
+          totalProfit: 1,
+          winRate: {
+            $multiply: [{ $divide: ["$winningTrades", "$totalTrades"] }, 100],
+          },
+          avgProfit: {
+            $divide: ["$totalProfit", "$totalTrades"],
+          },
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      data: sessionStats,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

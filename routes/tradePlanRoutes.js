@@ -24,54 +24,6 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-// GET trade plan statistics
-router.get("/stats", protect, async (req, res) => {
-  try {
-    const stats = await TradePlan.aggregate([
-      {
-        $match: { user: req.user._id },
-      },
-      {
-        $group: {
-          _id: null,
-          totalPlans: { $sum: 1 },
-          executedPlans: {
-            $sum: { $cond: [{ $eq: ["$status", "EXECUTED"] }, 1, 0] },
-          },
-          successfulPlans: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $eq: ["$status", "EXECUTED"] },
-                    { $gt: ["$actualTrade.profitLoss.realized", 0] },
-                  ],
-                },
-                1,
-                0,
-              ],
-            },
-          },
-        },
-      },
-    ]);
-
-    res.json({
-      success: true,
-      data: stats[0] || {
-        totalPlans: 0,
-        executedPlans: 0,
-        successfulPlans: 0,
-      },
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
 // CREATE new trade plan
 router.post("/", protect, async (req, res) => {
   try {
@@ -179,6 +131,111 @@ router.delete("/:id", protect, async (req, res) => {
     res.json({
       success: true,
       data: {},
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// GET time-based analysis
+router.get("/analysis/time", protect, async (req, res) => {
+  try {
+    const timeAnalysis = await Trade.aggregate([
+      {
+        $match: {
+          user: req.user._id,
+          status: "CLOSED",
+        },
+      },
+      {
+        $group: {
+          _id: {
+            hour: { $hour: "$entryDate" },
+            session: "$session",
+          },
+          totalTrades: { $sum: 1 },
+          winningTrades: {
+            $sum: {
+              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
+            },
+          },
+          totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+      {
+        $project: {
+          hour: "$_id.hour",
+          session: "$_id.session",
+          totalTrades: 1,
+          winningTrades: 1,
+          totalProfit: 1,
+          winRate: {
+            $multiply: [{ $divide: ["$winningTrades", "$totalTrades"] }, 100],
+          },
+          avgProfit: {
+            $divide: ["$totalProfit", "$totalTrades"],
+          },
+        },
+      },
+      { $sort: { hour: 1 } },
+    ]);
+
+    res.json({
+      success: true,
+      data: timeAnalysis,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// GET session statistics
+router.get("/analysis/sessions", protect, async (req, res) => {
+  try {
+    const sessionStats = await Trade.aggregate([
+      {
+        $match: {
+          user: req.user._id,
+          status: "CLOSED",
+        },
+      },
+      {
+        $group: {
+          _id: "$session",
+          totalTrades: { $sum: 1 },
+          winningTrades: {
+            $sum: {
+              $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0],
+            },
+          },
+          totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+      {
+        $project: {
+          session: "$_id",
+          totalTrades: 1,
+          winningTrades: 1,
+          totalProfit: 1,
+          winRate: {
+            $multiply: [{ $divide: ["$winningTrades", "$totalTrades"] }, 100],
+          },
+          avgProfit: {
+            $divide: ["$totalProfit", "$totalTrades"],
+          },
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      data: sessionStats,
     });
   } catch (error) {
     res.status(400).json({
