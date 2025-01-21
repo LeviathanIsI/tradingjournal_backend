@@ -497,4 +497,68 @@ router.get("/analysis/sessions", protect, async (req, res) => {
   }
 });
 
+router.get("/analysis/drawdown", protect, async (req, res) => {
+  try {
+    const trades = await Trade.find({
+      user: req.user._id,
+      status: "CLOSED",
+    }).sort({ exitDate: 1 });
+
+    // Calculate drawdown metrics
+    let maxDrawdown = 0;
+    let currentDrawdown = 0;
+    let maxConsecutiveLosses = 0;
+    let currentLossStreak = 0;
+    let biggestLoss = 0;
+    let equity = 0;
+    let peakEquity = 0;
+
+    trades.forEach((trade) => {
+      const pl = trade.profitLoss.realized;
+      equity += pl;
+
+      // Update peak equity
+      if (equity > peakEquity) {
+        peakEquity = equity;
+      }
+
+      // Calculate drawdown
+      currentDrawdown = peakEquity - equity;
+      if (currentDrawdown > maxDrawdown) {
+        maxDrawdown = currentDrawdown;
+      }
+
+      // Track consecutive losses
+      if (pl < 0) {
+        currentLossStreak++;
+        if (currentLossStreak > maxConsecutiveLosses) {
+          maxConsecutiveLosses = currentLossStreak;
+        }
+        if (pl < biggestLoss) {
+          biggestLoss = pl;
+        }
+      } else {
+        currentLossStreak = 0;
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        maxDrawdown,
+        maxConsecutiveLosses,
+        biggestLoss,
+        currentDrawdown: equity < peakEquity ? peakEquity - equity : 0,
+        peakEquity,
+        currentEquity: equity,
+      },
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
