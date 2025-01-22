@@ -34,4 +34,114 @@ router.get("/public", async (req, res) => {
   }
 });
 
+// Like a review
+router.post("/:id/like", protect, async (req, res) => {
+  try {
+    const review = await TradeReview.findById(req.params.id);
+    if (!review) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Review not found" });
+    }
+
+    const alreadyLiked = review.likes.includes(req.user._id);
+    if (alreadyLiked) {
+      review.likes = review.likes.filter((id) => !id.equals(req.user._id));
+    } else {
+      review.likes.push(req.user._id);
+    }
+
+    await review.save();
+    res.json({ success: true, data: review });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Add a comment
+router.post("/:id/comments", protect, async (req, res) => {
+  try {
+    const review = await TradeReview.findById(req.params.id);
+    if (!review) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Review not found" });
+    }
+
+    review.comments.push({
+      user: req.user._id,
+      content: req.body.content,
+    });
+
+    await review.save();
+
+    // Populate the new comment's user information
+    const populatedReview = await TradeReview.findById(review._id).populate(
+      "comments.user",
+      "username"
+    );
+
+    res.json({ success: true, data: populatedReview });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Delete a comment
+router.delete("/:reviewId/comments/:commentId", protect, async (req, res) => {
+  try {
+    const review = await TradeReview.findById(req.params.reviewId);
+    if (!review) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Review not found" });
+    }
+
+    const comment = review.comments.id(req.params.commentId);
+    if (!comment) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Comment not found" });
+    }
+
+    // Only allow comment deletion by comment author or review owner
+    if (
+      !comment.user.equals(req.user._id) &&
+      !review.user.equals(req.user._id)
+    ) {
+      return res.status(403).json({ success: false, error: "Not authorized" });
+    }
+
+    comment.remove();
+    await review.save();
+    res.json({ success: true, data: review });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Get featured reviews
+router.get("/featured", async (req, res) => {
+  try {
+    const featuredReviews = await TradeReview.find({
+      isPublic: true,
+      featured: true,
+    })
+      .populate("trade")
+      .populate("user", "username")
+      .limit(5) // Limit to 5 featured reviews
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: featuredReviews,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

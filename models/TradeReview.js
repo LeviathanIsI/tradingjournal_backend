@@ -1,5 +1,26 @@
 const mongoose = require("mongoose");
 
+const commentSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    content: {
+      type: String,
+      required: true,
+    },
+    likes: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+  },
+  { timestamps: true }
+);
+
 const tradeReviewSchema = new mongoose.Schema(
   {
     trade: {
@@ -17,6 +38,17 @@ const tradeReviewSchema = new mongoose.Schema(
     whatWentWrong: String,
     futureAdjustments: String,
     isPublic: {
+      type: Boolean,
+      default: false,
+    },
+    likes: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    comments: [commentSchema],
+    featured: {
       type: Boolean,
       default: false,
     },

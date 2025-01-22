@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Trade = require("../models/Trade");
 const { protect } = require("../middleware/authMiddleware");
 
 // Generate JWT
@@ -128,6 +129,283 @@ router.put("/settings", protect, async (req, res) => {
     res.json({
       success: true,
       data: user.preferences,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get user profile
+router.get("/profile/:username", async (req, res) => {
+  try {
+    const user = await User.findOne({ username: req.params.username }).select(
+      "-password -email"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Get user's reviews and stats
+    const reviews = await TradeReview.find({
+      user: user._id,
+      isPublic: true,
+    })
+      .populate("trade")
+      .sort({ createdAt: -1 });
+
+    // Calculate user stats
+    const stats = await Trade.aggregate([
+      { $match: { user: user._id } },
+      {
+        $group: {
+          _id: null,
+          totalTrades: { $sum: 1 },
+          winningTrades: {
+            $sum: { $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0] },
+          },
+          totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        user,
+        reviews,
+        stats: stats[0] || {
+          totalTrades: 0,
+          winningTrades: 0,
+          totalProfit: 0,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Follow/Unfollow user
+router.post("/follow/:userId", protect, async (req, res) => {
+  try {
+    if (req.params.userId === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        error: "You cannot follow yourself",
+      });
+    }
+
+    const userToFollow = await User.findById(req.params.userId);
+    const currentUser = await User.findById(req.user._id);
+
+    if (!userToFollow || !currentUser) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    const isFollowing = currentUser.following.includes(userToFollow._id);
+
+    if (isFollowing) {
+      // Unfollow
+      currentUser.following = currentUser.following.filter(
+        (id) => !id.equals(userToFollow._id)
+      );
+      userToFollow.followers = userToFollow.followers.filter(
+        (id) => !id.equals(currentUser._id)
+      );
+    } else {
+      // Follow
+      currentUser.following.push(userToFollow._id);
+      userToFollow.followers.push(currentUser._id);
+    }
+
+    await Promise.all([currentUser.save(), userToFollow.save()]);
+
+    res.json({
+      success: true,
+      data: {
+        isFollowing: !isFollowing,
+      },
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Update profile
+router.put("/profile", protect, async (req, res) => {
+  try {
+    const { bio, tradingStyle } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { bio, tradingStyle },
+      { new: true }
+    ).select("-password");
+
+    res.json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get all traders with stats
+router.get("/traders", protect, async (req, res) => {
+  try {
+    const traders = await User.find().select("-password -email").lean();
+
+    // Get stats for each trader
+    const tradersWithStats = await Promise.all(
+      traders.map(async (trader) => {
+        const stats = await Trade.aggregate([
+          { $match: { user: trader._id } },
+          {
+            $group: {
+              _id: null,
+              totalTrades: { $sum: 1 },
+              winningTrades: {
+                $sum: { $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0] },
+              },
+              totalProfit: { $sum: "$profitLoss.realized" },
+            },
+          },
+        ]);
+
+        const traderStats = stats[0] || {
+          totalTrades: 0,
+          winningTrades: 0,
+          totalProfit: 0,
+        };
+
+        return {
+          ...trader,
+          stats: {
+            ...traderStats,
+            winRate: traderStats.totalTrades
+              ? (
+                  (traderStats.winningTrades / traderStats.totalTrades) *
+                  100
+                ).toFixed(1)
+              : 0,
+          },
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: tradersWithStats,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get leaderboard data
+router.get("/leaderboard", protect, async (req, res) => {
+  try {
+    const { timeFrame } = req.query;
+    let dateFilter = {};
+
+    // Apply time frame filter
+    if (timeFrame !== "all") {
+      const now = new Date();
+      let startDate;
+
+      switch (timeFrame) {
+        case "today":
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case "week":
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case "month":
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case "year":
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+        default:
+          startDate = null;
+      }
+
+      if (startDate) {
+        dateFilter = { createdAt: { $gte: startDate } };
+      }
+    }
+
+    const traders = await User.find().select("-password -email").lean();
+
+    // Get stats for each trader with time frame filter
+    const tradersWithStats = await Promise.all(
+      traders.map(async (trader) => {
+        const stats = await Trade.aggregate([
+          {
+            $match: {
+              user: trader._id,
+              ...dateFilter,
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              totalTrades: { $sum: 1 },
+              winningTrades: {
+                $sum: { $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0] },
+              },
+              totalProfit: { $sum: "$profitLoss.realized" },
+            },
+          },
+        ]);
+
+        const traderStats = stats[0] || {
+          totalTrades: 0,
+          winningTrades: 0,
+          totalProfit: 0,
+        };
+
+        return {
+          ...trader,
+          stats: {
+            ...traderStats,
+            winRate: traderStats.totalTrades
+              ? (
+                  (traderStats.winningTrades / traderStats.totalTrades) *
+                  100
+                ).toFixed(1)
+              : 0,
+          },
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: tradersWithStats,
     });
   } catch (error) {
     res.status(400).json({

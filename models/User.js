@@ -44,6 +44,26 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    followers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    following: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    bio: {
+      type: String,
+      maxLength: 500,
+    },
+    tradingStyle: {
+      type: String,
+      enum: ["Day Trader", "Swing Trader", "Position Trader", "Scalper"],
+    },
   },
   {
     timestamps: true,
