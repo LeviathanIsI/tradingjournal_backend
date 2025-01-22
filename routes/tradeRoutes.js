@@ -561,4 +561,58 @@ router.get("/analysis/drawdown", protect, async (req, res) => {
   }
 });
 
+// In tradeRoutes.js
+router.get("/analysis/streaks", protect, async (req, res) => {
+  try {
+    const trades = await Trade.find({
+      user: req.user._id,
+      status: "CLOSED",
+    }).sort({ exitDate: 1 });
+
+    let currentStreak = 0;
+    let longestStreak = 0;
+    let totalStreaks = 0;
+    let streakCount = 0;
+    let previousDate = null;
+    let dailyPL = 0;
+
+    const streakData = trades.reduce((acc, trade) => {
+      const tradeDate = new Date(trade.exitDate).toDateString();
+
+      if (tradeDate !== previousDate) {
+        if (dailyPL > 0) {
+          currentStreak++;
+          longestStreak = Math.max(longestStreak, currentStreak);
+          streakCount++;
+        } else if (dailyPL < 0) {
+          currentStreak = 0;
+        }
+        dailyPL = trade.profitLoss.realized;
+        previousDate = tradeDate;
+        totalStreaks += currentStreak > 0 ? 1 : 0;
+      } else {
+        dailyPL += trade.profitLoss.realized;
+      }
+
+      return {
+        currentStreak,
+        longestStreak,
+        averageStreak: totalStreaks
+          ? (totalStreaks / streakCount).toFixed(1)
+          : 0,
+      };
+    }, {});
+
+    res.json({
+      success: true,
+      data: streakData,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
