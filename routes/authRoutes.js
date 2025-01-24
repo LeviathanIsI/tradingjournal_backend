@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Trade = require("../models/Trade");
 const { protect } = require("../middleware/authMiddleware");
+const TradeReview = require("../models/TradeReview");
 
 // Generate JWT
 const generateToken = (id) => {
@@ -139,11 +140,13 @@ router.put("/settings", protect, async (req, res) => {
 });
 
 // Get user profile
-router.get("/profile/:username", async (req, res) => {
+router.get("/profile/:username", protect, async (req, res) => {
   try {
-    const user = await User.findOne({ username: req.params.username }).select(
-      "-password -email"
-    );
+    // Get the requesting user's ID from the token if it exists
+    const requestingUserId = req.headers.authorization ? req.user?._id : null;
+
+    // Find the requested profile
+    const user = await User.findOne({ username: req.params.username });
 
     if (!user) {
       return res.status(404).json({
@@ -151,6 +154,14 @@ router.get("/profile/:username", async (req, res) => {
         error: "User not found",
       });
     }
+
+    // If viewing own profile, include email but exclude password
+    // If viewing other profile, exclude both password and email
+    const userProfile = await User.findById(user._id).select(
+      requestingUserId && requestingUserId.equals(user._id)
+        ? "-password"
+        : "-password -email"
+    );
 
     // Get user's reviews and stats
     const reviews = await TradeReview.find({
@@ -175,11 +186,14 @@ router.get("/profile/:username", async (req, res) => {
       },
     ]);
 
+    const trades = await Trade.find({ user: user._id }).sort({ entryDate: -1 });
+
     res.json({
       success: true,
       data: {
-        user,
+        user: userProfile,
         reviews,
+        trades,
         stats: stats[0] || {
           totalTrades: 0,
           winningTrades: 0,
@@ -411,6 +425,99 @@ router.get("/leaderboard", protect, async (req, res) => {
     res.status(400).json({
       success: false,
       error: error.message,
+    });
+  }
+});
+
+// Update profile
+router.put("/profile/update", protect, async (req, res) => {
+  try {
+    const { username, email, bio, tradingStyle } = req.body;
+
+    // Check if username is taken (if username is being changed)
+    if (username !== req.user.username) {
+      const existingUser = await User.findOne({ username });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          error: "Username is already taken",
+        });
+      }
+    }
+
+    // Check if email is taken (if email is being changed)
+    if (email !== req.user.email) {
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          error: "Email is already taken",
+        });
+      }
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { username, email, bio, tradingStyle },
+      { new: true }
+    ).select("-password");
+
+    res.json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Update password
+router.put("/profile/password", protect, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Get user with password
+    const user = await User.findById(req.user._id).select("+password");
+
+    // Check current password
+    const isMatch = await user.matchPassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        error: "Current password is incorrect",
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      data: "Password updated successfully",
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+router.get("/validate", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("-password");
+    res.json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    res.status(401).json({
+      success: false,
+      error: "Invalid token",
     });
   }
 });

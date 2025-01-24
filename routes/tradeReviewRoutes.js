@@ -52,7 +52,14 @@ router.post("/:id/like", protect, async (req, res) => {
     }
 
     await review.save();
-    res.json({ success: true, data: review });
+
+    // Fetch the updated review with populated data
+    const updatedReview = await TradeReview.findById(review._id)
+      .populate("trade")
+      .populate("user", "username")
+      .populate("comments.user", "username");
+
+    res.json({ success: true, data: updatedReview });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -75,13 +82,13 @@ router.post("/:id/comments", protect, async (req, res) => {
 
     await review.save();
 
-    // Populate the new comment's user information
-    const populatedReview = await TradeReview.findById(review._id).populate(
-      "comments.user",
-      "username"
-    );
+    // Fetch the updated review with populated data
+    const updatedReview = await TradeReview.findById(review._id)
+      .populate("trade")
+      .populate("user", "username")
+      .populate("comments.user", "username");
 
-    res.json({ success: true, data: populatedReview });
+    res.json({ success: true, data: updatedReview });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -92,31 +99,52 @@ router.delete("/:reviewId/comments/:commentId", protect, async (req, res) => {
   try {
     const review = await TradeReview.findById(req.params.reviewId);
     if (!review) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Review not found" });
+      return res.status(404).json({
+        success: false,
+        error: "Review not found",
+      });
     }
 
+    // Find the comment
     const comment = review.comments.id(req.params.commentId);
     if (!comment) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Comment not found" });
+      return res.status(404).json({
+        success: false,
+        error: "Comment not found",
+      });
     }
 
-    // Only allow comment deletion by comment author or review owner
+    // Check if user is authorized to delete
     if (
       !comment.user.equals(req.user._id) &&
       !review.user.equals(req.user._id)
     ) {
-      return res.status(403).json({ success: false, error: "Not authorized" });
+      return res.status(403).json({
+        success: false,
+        error: "Not authorized to delete this comment",
+      });
     }
 
-    comment.remove();
+    // Remove the comment and save
+    comment.deleteOne();
     await review.save();
-    res.json({ success: true, data: review });
+
+    // Return populated review
+    const updatedReview = await TradeReview.findById(review._id)
+      .populate("trade")
+      .populate("user", "username")
+      .populate("comments.user", "username");
+
+    res.json({
+      success: true,
+      data: updatedReview,
+    });
   } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
+    console.error("Error deleting comment:", error);
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
@@ -135,6 +163,26 @@ router.get("/featured", async (req, res) => {
     res.json({
       success: true,
       data: featuredReviews,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get user's reviews
+router.get("/user/:userId", protect, async (req, res) => {
+  try {
+    const reviews = await TradeReview.find({ user: req.params.userId })
+      .populate("trade")
+      .populate("user", "username")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: reviews,
     });
   } catch (error) {
     res.status(400).json({
