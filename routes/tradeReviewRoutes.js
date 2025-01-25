@@ -157,7 +157,13 @@ router.get("/featured", async (req, res) => {
     })
       .populate("trade")
       .populate("user", "username")
-      .limit(5) // Limit to 5 featured reviews
+      .populate({
+        path: "comments",
+        populate: {
+          path: "user",
+          select: "username",
+        },
+      })
       .sort({ createdAt: -1 });
 
     res.json({
