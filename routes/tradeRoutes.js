@@ -615,4 +615,30 @@ router.get("/analysis/streaks", protect, async (req, res) => {
   }
 });
 
+// backend/routes/tradeRoutes.js
+router.post("/import", protect, async (req, res) => {
+  try {
+    const { trades } = req.body;
+
+    // Add user ID to each trade
+    const tradesWithUser = trades.map((trade) => ({
+      ...trade,
+      user: req.user._id,
+    }));
+
+    // Insert all trades
+    const result = await Trade.insertMany(tradesWithUser);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

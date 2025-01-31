@@ -43,6 +43,7 @@ router.post("/register", async (req, res) => {
           _id: user._id,
           username: user.username,
           email: user.email,
+          hasCompletedTour: user.hasCompletedTour,
           token: generateToken(user._id),
         },
       });
@@ -87,6 +88,7 @@ router.post("/login", async (req, res) => {
         username: user.username,
         email: user.email,
         preferences: user.preferences,
+        hasCompletedTour: user.hasCompletedTour,
         token: generateToken(user._id),
       },
     });
