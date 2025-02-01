@@ -641,4 +641,31 @@ router.post("/import", protect, async (req, res) => {
   }
 });
 
+// In your trade routes
+router.post("/update-post-exit-data", protect, async (req, res) => {
+  try {
+    const { tradeId, postExitHigh, postExitLow } = req.body;
+
+    const trade = await Trade.findByIdAndUpdate(
+      tradeId,
+      {
+        postExitHigh,
+        postExitLow,
+        optimalExitPrice: Math.max(postExitHigh, trade.exitPrice),
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      data: trade,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

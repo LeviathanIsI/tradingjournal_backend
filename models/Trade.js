@@ -100,6 +100,8 @@ const tradeSchema = new mongoose.Schema(
         type: Number,
         min: 1,
         max: 10,
+        required: false,
+        default: null,
       },
       emotion: {
         type: String,
@@ -110,7 +112,11 @@ const tradeSchema = new mongoose.Schema(
           "Confident",
           "Frustrated",
           "Neutral",
+          null,
+          "",
         ],
+        required: false,
+        default: null,
       },
       notes: String,
     },
@@ -161,6 +167,14 @@ const tradeSchema = new mongoose.Schema(
       type: String,
       enum: ["Pre-Market", "Regular", "After-Hours"],
       default: "Regular",
+    },
+    postExitHigh: {
+      type: Number,
+      default: null, // Highest price after exit
+    },
+    postExitLow: {
+      type: Number,
+      default: null, // Lowest price after exit
     },
     violatedRules: [
       {
