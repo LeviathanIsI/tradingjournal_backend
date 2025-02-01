@@ -20,34 +20,29 @@ router.post("/register", async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    // Check if user exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
+    if (await User.findOne({ email })) {
       return res.status(400).json({
         success: false,
         error: "User already exists",
       });
     }
 
-    // Create user
     const user = await User.create({
       username,
       email,
       password,
     });
 
-    if (user) {
-      res.status(201).json({
-        success: true,
-        data: {
-          _id: user._id,
-          username: user.username,
-          email: user.email,
-          hasCompletedTour: user.hasCompletedTour,
-          token: generateToken(user._id),
-        },
-      });
-    }
+    res.status(201).json({
+      success: true,
+      data: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        tourStatus: user.tourStatus,
+        token: generateToken(user._id),
+      },
+    });
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -62,19 +57,9 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Check for user email
     const user = await User.findOne({ email }).select("+password");
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid credentials",
-      });
-    }
 
-    // Check password
-    const isMatch = await user.matchPassword(password);
-    if (!isMatch) {
+    if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({
         success: false,
         error: "Invalid credentials",
@@ -88,7 +73,7 @@ router.post("/login", async (req, res) => {
         username: user.username,
         email: user.email,
         preferences: user.preferences,
-        hasCompletedTour: user.hasCompletedTour,
+        tourStatus: user.tourStatus,
         token: generateToken(user._id),
       },
     });
@@ -524,23 +509,23 @@ router.get("/validate", protect, async (req, res) => {
   }
 });
 
-router.post("/complete-tour", protect, async (req, res) => {
-  try {
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { hasCompletedTour: true },
-      { new: true }
-    ).select("-password");
+router.post("/complete-tour/:page", protect, async (req, res) => {
+  const { page } = req.params;
+  const validPages = ["dashboard", "community", "tradePlanning"];
 
-    res.json({
-      success: true,
-      data: user,
+  if (!validPages.includes(page)) {
+    return res.status(400).json({ success: false, message: "Invalid page" });
+  }
+
+  try {
+    const tourField = `tourStatus.${page}TourCompleted`;
+    await User.findByIdAndUpdate(req.user._id, {
+      $set: { [tourField]: true },
     });
+
+    res.json({ success: true });
   } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error.message,
-    });
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 

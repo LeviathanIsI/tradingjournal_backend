@@ -64,9 +64,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ["Day Trader", "Swing Trader", "Position Trader", "Scalper"],
     },
-    hasCompletedTour: {
-      type: Boolean,
-      default: false,
+    tourStatus: {
+      dashboardTourCompleted: { type: Boolean, default: false },
+      communityTourCompleted: { type: Boolean, default: false },
+      tradePlanningTourCompleted: { type: Boolean, default: false },
     },
   },
   {
