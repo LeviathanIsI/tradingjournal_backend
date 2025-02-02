@@ -68,6 +68,12 @@ const userSchema = new mongoose.Schema(
       dashboardTourCompleted: { type: Boolean, default: false },
       communityTourCompleted: { type: Boolean, default: false },
       tradePlanningTourCompleted: { type: Boolean, default: false },
+      communityNavTourCompleted: { type: Boolean, default: false },
+      reviewsTourCompleted: { type: Boolean, default: false },
+      tradersTourCompleted: { type: Boolean, default: false },
+      leaderboardTourCompleted: { type: Boolean, default: false },
+      featuredTourCompleted: { type: Boolean, default: false },
+      profileTourCompleted: { type: Boolean, default: false },
     },
   },
   {
