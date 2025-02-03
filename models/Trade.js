@@ -56,6 +56,24 @@ const tradeSchema = new mongoose.Schema(
     exitDate: {
       type: Date,
     },
+    postExitAnalysis: {
+      lowBeforeHigh: {
+        type: Boolean,
+        default: null,
+        description:
+          "Indicates if the lowest price came before the highest price after exit",
+      },
+      timeOfLow: {
+        type: Date,
+        default: null,
+        description: "Time when the lowest price was reached",
+      },
+      timeOfHigh: {
+        type: Date,
+        default: null,
+        description: "Time when the highest price was reached",
+      },
+    },
     status: {
       type: String,
       enum: ["OPEN", "CLOSED"],

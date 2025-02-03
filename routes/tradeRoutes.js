@@ -13,8 +13,9 @@ const calculateProfitLoss = (trade) => {
     };
   }
 
-  const entryValue = trade.entryPrice * trade.entryQuantity;
-  const exitValue = trade.exitPrice * trade.exitQuantity;
+  const entryValue = Number(trade.entryPrice) * Number(trade.entryQuantity);
+  const exitValue = Number(trade.exitPrice) * Number(trade.exitQuantity);
+
   let realizedPL;
 
   if (trade.type === "LONG") {
@@ -23,11 +24,17 @@ const calculateProfitLoss = (trade) => {
     realizedPL = entryValue - exitValue;
   }
 
-  return {
+  // Ensure we're not dividing by zero
+  if (entryValue === 0) {
+    throw new Error("Entry value cannot be zero");
+  }
+
+  const result = {
     realized: Number(realizedPL.toFixed(2)),
     percentage: Number(((realizedPL / entryValue) * 100).toFixed(2)),
     status: "CLOSED",
   };
+  return result;
 };
 
 // GET all trades
@@ -206,16 +213,48 @@ router.put("/:id", protect, async (req, res) => {
       });
     }
 
-    const updatedData = {
-      ...req.body,
+    // Convert numeric fields
+    const tradeForPL = {
+      type: req.body.type,
+      entryPrice: Number(req.body.entryPrice) || 0,
+      entryQuantity: Number(req.body.entryQuantity) || 0,
+      exitPrice: req.body.exitPrice ? Number(req.body.exitPrice) : null,
+      exitQuantity: req.body.exitQuantity
+        ? Number(req.body.exitQuantity)
+        : null,
     };
 
     // Calculate new P/L
-    const pl = calculateProfitLoss(updatedData);
-    updatedData.status = pl.status;
-    updatedData.profitLoss = {
-      realized: pl.realized,
-      percentage: pl.percentage,
+    const pl = calculateProfitLoss(tradeForPL);
+
+    const updatedData = {
+      ...req.body,
+      entryPrice: Number(req.body.entryPrice),
+      entryQuantity: Number(req.body.entryQuantity),
+      exitPrice: req.body.exitPrice ? Number(req.body.exitPrice) : undefined,
+      exitQuantity: req.body.exitQuantity
+        ? Number(req.body.exitQuantity)
+        : undefined,
+      postExitHigh: req.body.postExitHigh
+        ? Number(req.body.postExitHigh)
+        : null,
+      postExitLow: req.body.postExitLow ? Number(req.body.postExitLow) : null,
+      postExitAnalysis: {
+        lowBeforeHigh:
+          req.body.postExitAnalysis?.lowBeforeHigh ??
+          trade.postExitAnalysis?.lowBeforeHigh,
+        timeOfLow:
+          req.body.postExitAnalysis?.timeOfLow ??
+          trade.postExitAnalysis?.timeOfLow,
+        timeOfHigh:
+          req.body.postExitAnalysis?.timeOfHigh ??
+          trade.postExitAnalysis?.timeOfHigh,
+      },
+      profitLoss: {
+        realized: pl.realized,
+        percentage: pl.percentage,
+      },
+      status: pl.status,
     };
 
     trade = await Trade.findByIdAndUpdate(req.params.id, updatedData, {
@@ -231,6 +270,74 @@ router.put("/:id", protect, async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Update error:", error);
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Update POST route
+router.post("/", protect, async (req, res) => {
+  try {
+    const requiredFields = [
+      "symbol",
+      "type",
+      "tradeType",
+      "entryPrice",
+      "entryQuantity",
+      "entryDate",
+    ];
+    const missingFields = requiredFields.filter((field) => !req.body[field]);
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Missing required fields: ${missingFields.join(", ")}`,
+      });
+    }
+
+    const tradeData = {
+      ...req.body,
+      user: req.user._id,
+      postExitAnalysis: {
+        lowBeforeHigh: req.body.postExitAnalysis?.lowBeforeHigh || null,
+        timeOfLow: req.body.postExitAnalysis?.timeOfLow || null,
+        timeOfHigh: req.body.postExitAnalysis?.timeOfHigh || null,
+      },
+    };
+
+    // Ensure numeric fields for P/L calculation
+    const tradeForPL = {
+      type: tradeData.type,
+      entryPrice: Number(tradeData.entryPrice),
+      entryQuantity: Number(tradeData.entryQuantity),
+      exitPrice: tradeData.exitPrice ? Number(tradeData.exitPrice) : null,
+      exitQuantity: tradeData.exitQuantity
+        ? Number(tradeData.exitQuantity)
+        : null,
+    };
+
+    // Calculate initial P/L
+    const pl = calculateProfitLoss(tradeForPL);
+    tradeData.status = pl.status;
+    tradeData.profitLoss = {
+      realized: pl.realized,
+      percentage: pl.percentage,
+    };
+
+    const trade = await Trade.create(tradeData);
+
+    res.status(201).json({
+      success: true,
+      data: {
+        ...trade.toObject(),
+        profitLoss: pl,
+      },
+    });
+  } catch (error) {
+    console.error("Create error:", error);
     res.status(400).json({
       success: false,
       error: error.message,

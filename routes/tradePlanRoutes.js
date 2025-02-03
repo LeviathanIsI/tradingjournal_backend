@@ -27,7 +27,6 @@ router.get("/", protect, async (req, res) => {
 // CREATE new trade plan
 router.post("/", protect, async (req, res) => {
   try {
-    console.log("Received request body:", req.body);
     const tradePlan = await TradePlan.create({
       ...req.body,
       user: req.user._id,
@@ -49,8 +48,6 @@ router.post("/", protect, async (req, res) => {
 // UPDATE trade plan
 router.put("/:id", protect, async (req, res) => {
   try {
-    console.log("Updating trade plan:", req.params.id);
-    console.log("Update data:", req.body);
 
     // Remove _id and other metadata fields from the update
     const updateData = { ...req.body };

@@ -110,7 +110,9 @@ router.put("/settings", protect, async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      { preferences: { ...req.body } },
+      {
+        preferences: req.body.preferences,
+      },
       { new: true }
     );
 
@@ -419,7 +421,7 @@ router.get("/leaderboard", protect, async (req, res) => {
 // Update profile
 router.put("/profile/update", protect, async (req, res) => {
   try {
-    const { username, email, bio, tradingStyle } = req.body;
+    const { username, email, bio, tradingStyle, timeZone } = req.body;
 
     // Check if username is taken (if username is being changed)
     if (username !== req.user.username) {
@@ -445,8 +447,8 @@ router.put("/profile/update", protect, async (req, res) => {
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      { username, email, bio, tradingStyle },
-      { new: true }
+      { username, email, bio, tradingStyle, timeZone },
+      { new: true, runValidators: true }
     ).select("-password");
 
     res.json({
@@ -511,17 +513,35 @@ router.get("/validate", protect, async (req, res) => {
 
 router.post("/complete-tour/:page", protect, async (req, res) => {
   const { page } = req.params;
-  const validPages = ["dashboard", "community", "tradePlanning"];
+  const validPages = [
+    "dashboard",
+    "community",
+    "tradePlanning",
+    "communityNav",
+    "reviews",
+    "traders",
+    "leaderboard",
+    "featured",
+    "profile",
+  ];
 
   if (!validPages.includes(page)) {
-    return res.status(400).json({ success: false, message: "Invalid page" });
+    return res.status(400).json({
+      success: false,
+      error: "Invalid page",
+      message: `Valid pages are: ${validPages.join(", ")}`,
+    });
   }
 
   try {
     const tourField = `tourStatus.${page}TourCompleted`;
-    await User.findByIdAndUpdate(req.user._id, {
-      $set: { [tourField]: true },
-    });
+    await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        $set: { [tourField]: true },
+      },
+      { new: true }
+    );
 
     res.json({ success: true });
   } catch (error) {
