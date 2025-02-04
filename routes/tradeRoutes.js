@@ -374,7 +374,48 @@ router.delete("/:id", protect, async (req, res) => {
   }
 });
 
-// In tradeRoutes.js, add a new endpoint for pattern analysis
+router.post("/bulk-delete", protect, async (req, res) => {
+  try {
+    const { tradeIds } = req.body;
+
+    if (!Array.isArray(tradeIds) || tradeIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No trade IDs provided for deletion",
+      });
+    }
+
+    // Verify all trades belong to the user before deletion
+    const trades = await Trade.find({
+      _id: { $in: tradeIds },
+      user: req.user._id,
+    });
+
+    if (trades.length !== tradeIds.length) {
+      return res.status(403).json({
+        success: false,
+        error: "Some trades not found or unauthorized",
+      });
+    }
+
+    // Perform bulk deletion
+    await Trade.deleteMany({
+      _id: { $in: tradeIds },
+      user: req.user._id,
+    });
+
+    res.json({
+      success: true,
+      message: `Successfully deleted ${trades.length} trades`,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 router.get("/analysis/patterns", protect, async (req, res) => {
   try {
     const patterns = await Trade.aggregate([
