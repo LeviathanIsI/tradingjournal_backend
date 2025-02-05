@@ -198,4 +198,40 @@ router.get("/user/:userId", protect, async (req, res) => {
   }
 });
 
+// Update review
+router.patch("/:id", protect, async (req, res) => {
+  try {
+    const review = await TradeReview.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
+
+    if (!review) {
+      return res.status(404).json({
+        success: false,
+        error: "Review not found or unauthorized",
+      });
+    }
+
+    const updatedReview = await TradeReview.findByIdAndUpdate(
+      req.params.id,
+      { ...req.body },
+      { new: true }
+    )
+      .populate("trade")
+      .populate("user", "username")
+      .populate("comments.user", "username");
+
+    res.json({
+      success: true,
+      data: updatedReview,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
