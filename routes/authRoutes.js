@@ -549,4 +549,52 @@ router.post("/complete-tour/:page", protect, async (req, res) => {
   }
 });
 
+// Get network data
+router.get("/network/:userId", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    const networkUsers = await User.find({
+      _id: { $in: user.following },
+    }).select("-password -email");
+
+    // Get stats for each user in the network
+    const networkData = await Promise.all(
+      networkUsers.map(async (networkUser) => {
+        const stats = await Trade.aggregate([
+          { $match: { user: networkUser._id } },
+          {
+            $group: {
+              _id: null,
+              totalTrades: { $sum: 1 },
+              winningTrades: {
+                $sum: { $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0] },
+              },
+              totalProfit: { $sum: "$profitLoss.realized" },
+            },
+          },
+        ]);
+
+        return {
+          ...networkUser.toObject(),
+          stats: stats[0] || {
+            totalTrades: 0,
+            winningTrades: 0,
+            totalProfit: 0,
+          },
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: networkData,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;
