@@ -553,8 +553,13 @@ router.post("/complete-tour/:page", protect, async (req, res) => {
 router.get("/network/:userId", protect, async (req, res) => {
   try {
     const user = await User.findById(req.params.userId);
+
+    // Get both followers and following
     const networkUsers = await User.find({
-      _id: { $in: user.following },
+      $or: [
+        { _id: { $in: user.followers } }, // Users who follow this user
+        { _id: { $in: user.following } }, // Users this user follows
+      ],
     }).select("-password -email");
 
     // Get stats for each user in the network
@@ -580,6 +585,10 @@ router.get("/network/:userId", protect, async (req, res) => {
             totalTrades: 0,
             winningTrades: 0,
             totalProfit: 0,
+          },
+          relationship: {
+            isFollower: user.followers.includes(networkUser._id),
+            isFollowing: user.following.includes(networkUser._id),
           },
         };
       })
