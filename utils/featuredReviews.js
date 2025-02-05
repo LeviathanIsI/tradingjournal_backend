@@ -1,3 +1,6 @@
+const TradeReview = require("../models/TradeReview");
+const moment = require("moment-timezone");
+
 const updateFeaturedReviews = async () => {
   try {
     const now = moment().tz("America/New_York");
@@ -176,4 +179,16 @@ const updateFeaturedReviews = async () => {
     console.error("Error updating featured reviews:", error);
     throw error;
   }
+};
+
+const checkAndUpdateFeatured = async () => {
+  const featuredCount = await TradeReview.countDocuments({ featured: true });
+  if (featuredCount === 0) {
+    await updateFeaturedReviews();
+  }
+};
+
+module.exports = {
+  updateFeaturedReviews,
+  checkAndUpdateFeatured,
 };
