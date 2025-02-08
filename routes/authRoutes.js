@@ -16,9 +16,12 @@ const generateToken = (id) => {
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
+// @desc    Register user
+// @route   POST /api/auth/register
+// @access  Public
 router.post("/register", async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, securityQuestions } = req.body;
 
     if (await User.findOne({ email })) {
       return res.status(400).json({
@@ -31,6 +34,20 @@ router.post("/register", async (req, res) => {
       username,
       email,
       password,
+      securityQuestions: {
+        question1: {
+          question: securityQuestions.question1.question,
+          answer: securityQuestions.question1.answer,
+        },
+        question2: {
+          question: securityQuestions.question2.question,
+          answer: securityQuestions.question2.answer,
+        },
+        question3: {
+          question: securityQuestions.question3.question,
+          answer: securityQuestions.question3.answer,
+        },
+      },
     });
 
     res.status(201).json({
@@ -630,6 +647,134 @@ router.post("/complete-tour/:tourId", protect, async (req, res) => {
     res.json({
       success: true,
       data: user,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Initiate password reset
+router.post("/forgot-password/init", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Return security questions
+    res.json({
+      success: true,
+      data: {
+        userId: user._id,
+        questions: {
+          question1: user.securityQuestions.question1.question,
+          question2: user.securityQuestions.question2.question,
+          question3: user.securityQuestions.question3.question,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Set up or update security questions
+router.post("/security-questions", protect, async (req, res) => {
+  try {
+    const { questions } = req.body;
+    const user = await User.findById(req.user._id);
+
+    // Encrypt answers before saving
+    user.securityQuestions = {
+      question1: {
+        question: questions.question1.question,
+        answer: await user.encryptSecurityAnswer(questions.question1.answer),
+      },
+      question2: {
+        question: questions.question2.question,
+        answer: await user.encryptSecurityAnswer(questions.question2.answer),
+      },
+      question3: {
+        question: questions.question3.question,
+        answer: await user.encryptSecurityAnswer(questions.question3.answer),
+      },
+    };
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Security questions updated successfully",
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Verify security answers and generate reset token
+router.post("/forgot-password/verify", async (req, res) => {
+  try {
+    const { userId, answers } = req.body;
+    const user = await User.findById(userId).select(
+      "+securityQuestions.question1.answer " +
+        "+securityQuestions.question2.answer " +
+        "+securityQuestions.question3.answer"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Verify all three answers
+    const isAnswer1Correct = await user.verifySecurityAnswer(
+      answers.answer1,
+      user.securityQuestions.question1.answer
+    );
+    const isAnswer2Correct = await user.verifySecurityAnswer(
+      answers.answer2,
+      user.securityQuestions.question2.answer
+    );
+    const isAnswer3Correct = await user.verifySecurityAnswer(
+      answers.answer3,
+      user.securityQuestions.question3.answer
+    );
+
+    if (!isAnswer1Correct || !isAnswer2Correct || !isAnswer3Correct) {
+      return res.status(401).json({
+        success: false,
+        error: "Incorrect answers",
+      });
+    }
+
+    // Generate password reset token
+    const resetToken = jwt.sign(
+      { id: user._id, type: "reset" },
+      process.env.JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        resetToken,
+      },
     });
   } catch (error) {
     res.status(400).json({

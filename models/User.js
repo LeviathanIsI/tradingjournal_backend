@@ -26,6 +26,41 @@ const userSchema = new mongoose.Schema(
       minlength: 6,
       select: false,
     },
+    securityQuestions: {
+      question1: {
+        question: {
+          type: String,
+          required: [true, "Security question 1 is required"],
+        },
+        answer: {
+          type: String,
+          required: [true, "Answer to security question 1 is required"],
+          select: false,
+        },
+      },
+      question2: {
+        question: {
+          type: String,
+          required: [true, "Security question 2 is required"],
+        },
+        answer: {
+          type: String,
+          required: [true, "Answer to security question 2 is required"],
+          select: false,
+        },
+      },
+      question3: {
+        question: {
+          type: String,
+          required: [true, "Security question 3 is required"],
+        },
+        answer: {
+          type: String,
+          required: [true, "Answer to security question 3 is required"],
+          select: false,
+        },
+      },
+    },
     preferences: {
       defaultCurrency: {
         type: String,
@@ -94,6 +129,50 @@ userSchema.pre("save", async function (next) {
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
+
+userSchema.pre("save", async function (next) {
+  // Only hash answers if they've been modified
+  if (
+    !this.isModified("securityQuestions.question1.answer") &&
+    !this.isModified("securityQuestions.question2.answer") &&
+    !this.isModified("securityQuestions.question3.answer")
+  ) {
+    return next();
+  }
+
+  const salt = await bcrypt.genSalt(10);
+
+  // Hash each answer if it's been modified
+  if (this.isModified("securityQuestions.question1.answer")) {
+    this.securityQuestions.question1.answer = await bcrypt.hash(
+      this.securityQuestions.question1.answer.toLowerCase().trim(),
+      salt
+    );
+  }
+  if (this.isModified("securityQuestions.question2.answer")) {
+    this.securityQuestions.question2.answer = await bcrypt.hash(
+      this.securityQuestions.question2.answer.toLowerCase().trim(),
+      salt
+    );
+  }
+  if (this.isModified("securityQuestions.question3.answer")) {
+    this.securityQuestions.question3.answer = await bcrypt.hash(
+      this.securityQuestions.question3.answer.toLowerCase().trim(),
+      salt
+    );
+  }
+
+  next();
+});
+
+// Add method to verify security answers
+userSchema.methods.verifySecurityAnswer = async function (
+  questionNumber,
+  providedAnswer
+) {
+  const answer = this.securityQuestions[`question${questionNumber}`].answer;
+  return await bcrypt.compare(providedAnswer.toLowerCase().trim(), answer);
+};
 
 // Method to compare entered password with hashed password
 userSchema.methods.matchPassword = async function (enteredPassword) {
