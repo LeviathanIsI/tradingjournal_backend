@@ -39,6 +39,11 @@ const userSchema = new mongoose.Schema(
         type: Number,
         default: 0,
       },
+      experienceLevel: {
+        type: String,
+        enum: ["auto", "beginner", "intermediate", "advanced"],
+        default: "auto",
+      },
     },
     created: {
       type: Date,

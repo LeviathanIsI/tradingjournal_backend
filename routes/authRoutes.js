@@ -108,10 +108,17 @@ router.get("/settings", protect, async (req, res) => {
 // @access  Private
 router.put("/settings", protect, async (req, res) => {
   try {
+    const { startingCapital, defaultCurrency, timeZone, experienceLevel } =
+      req.body.preferences;
     const user = await User.findByIdAndUpdate(
       req.user._id,
       {
-        preferences: req.body.preferences,
+        preferences: {
+          startingCapital,
+          defaultCurrency,
+          timeZone,
+          experienceLevel, // Add this
+        },
       },
       { new: true }
     );
@@ -597,6 +604,32 @@ router.get("/network/:userId", protect, async (req, res) => {
     res.json({
       success: true,
       data: networkData,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// @desc    Complete a tour
+// @route   POST /api/auth/complete-tour/:tourId
+// @access  Private
+router.post("/complete-tour/:tourId", protect, async (req, res) => {
+  try {
+    const tourId = req.params.tourId;
+    const tourStatusKey = `tourStatus.${tourId}TourCompleted`;
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: { [tourStatusKey]: true } },
+      { new: true }
+    ).select("-password");
+
+    res.json({
+      success: true,
+      data: user,
     });
   } catch (error) {
     res.status(400).json({
