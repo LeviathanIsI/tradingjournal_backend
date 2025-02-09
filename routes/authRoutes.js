@@ -744,16 +744,16 @@ router.post("/forgot-password/verify", async (req, res) => {
 
     // Verify all three answers
     const isAnswer1Correct = await user.verifySecurityAnswer(
-      answers.answer1,
-      user.securityQuestions.question1.answer
+      "question1",
+      answers.answer1
     );
     const isAnswer2Correct = await user.verifySecurityAnswer(
-      answers.answer2,
-      user.securityQuestions.question2.answer
+      "question2",
+      answers.answer2
     );
     const isAnswer3Correct = await user.verifySecurityAnswer(
-      answers.answer3,
-      user.securityQuestions.question3.answer
+      "question3",
+      answers.answer3
     );
 
     if (!isAnswer1Correct || !isAnswer2Correct || !isAnswer3Correct) {
@@ -777,6 +777,42 @@ router.post("/forgot-password/verify", async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Verify error:", error);
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Add this to your authRoutes.js file
+// Reset password with token
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+
+    // Verify token
+    const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+    if (decoded.type !== "reset") {
+      throw new Error("Invalid reset token");
+    }
+
+    // Find user and update password
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Set new password (it will be hashed by the pre-save middleware)
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Password reset successful",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
     res.status(400).json({
       success: false,
       error: error.message,

@@ -167,11 +167,19 @@ userSchema.pre("save", async function (next) {
 
 // Add method to verify security answers
 userSchema.methods.verifySecurityAnswer = async function (
-  questionNumber,
+  questionKey,
   providedAnswer
 ) {
-  const answer = this.securityQuestions[`question${questionNumber}`].answer;
-  return await bcrypt.compare(providedAnswer.toLowerCase().trim(), answer);
+  try {
+    const storedAnswer = this.securityQuestions[questionKey].answer;
+    return await bcrypt.compare(
+      providedAnswer.toLowerCase().trim(),
+      storedAnswer
+    );
+  } catch (error) {
+    console.error("Answer verification error:", error); // Add this for debugging
+    return false;
+  }
 };
 
 // Method to compare entered password with hashed password
