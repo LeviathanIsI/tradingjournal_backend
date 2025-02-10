@@ -79,6 +79,10 @@ const userSchema = new mongoose.Schema(
         enum: ["auto", "beginner", "intermediate", "advanced"],
         default: "auto",
       },
+      darkMode: {
+        type: Boolean,
+        default: false,
+      },
     },
     created: {
       type: Date,

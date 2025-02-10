@@ -234,4 +234,33 @@ router.patch("/:id", protect, async (req, res) => {
   }
 });
 
+// Delete review
+router.delete("/:id", protect, async (req, res) => {
+  try {
+    const review = await TradeReview.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
+
+    if (!review) {
+      return res.status(404).json({
+        success: false,
+        error: "Review not found or unauthorized",
+      });
+    }
+
+    await review.deleteOne();
+
+    res.json({
+      success: true,
+      data: { id: req.params.id },
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 module.exports = router;

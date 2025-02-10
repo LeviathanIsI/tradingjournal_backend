@@ -129,14 +129,7 @@ router.put("/settings", protect, async (req, res) => {
       req.body.preferences;
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      {
-        preferences: {
-          startingCapital,
-          defaultCurrency,
-          timeZone,
-          experienceLevel, // Add this
-        },
-      },
+      { preferences: req.body.preferences },
       { new: true }
     );
 
