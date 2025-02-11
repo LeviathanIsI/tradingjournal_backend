@@ -798,25 +798,27 @@ router.get(
 );
 
 // Google OAuth callback
-// Google OAuth callback
-// Google OAuth callback
 router.get(
   "/google/callback",
   passport.authenticate("google", {
     session: false,
-    failureRedirect: `${process.env.FRONTEND_URL || "http://localhost:5173"}/login`,
+    failureRedirect: `${
+      process.env.FRONTEND_URL || "http://localhost:5173"
+    }/login`,
   }),
   async (req, res) => {
     try {
+      console.log("🔄 Google Callback Hit");
+      console.log("📌 Request User:", req.user);
+
       if (!req.user) {
         throw new Error("❌ No user returned from Google authentication");
       }
 
-      console.log("✅ Google OAuth Successful, User:", req.user);
-
       let user = await User.findOne({ googleId: req.user.googleId });
 
       if (!user) {
+        console.log("🆕 Creating New User...");
         user = await User.create({
           username: req.user.username,
           email: req.user.email,
@@ -824,30 +826,28 @@ router.get(
           googleAuth: true,
         });
       } else {
+        console.log("✅ Existing User Found, Updating GoogleAuth Status...");
         user.googleAuth = true;
         await user.save();
       }
 
-      // 🔹 Generate token
+      console.log("🔑 Generating JWT...");
       const token = jwt.sign(
         { id: user._id, googleAuth: true },
         process.env.JWT_SECRET,
         { expiresIn: "30d" }
       );
 
-      // 🔹 Ensure the frontend URL is correct
+      console.log("✅ Token Generated:", token);
+
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-      const redirectUrl = `${FRONTEND_URL}/auth/google/success?token=${token}`;
-
-      console.log("✅ Redirecting user to:", redirectUrl);
-
-      // 🔹 Redirect with token
-      res.redirect(redirectUrl);
+      res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
     } catch (error) {
       console.error("❌ Google callback error:", error);
-      res.redirect(
-        `${process.env.FRONTEND_URL || "http://localhost:5173"}/login?error=google_callback_failed`
-      );
+      res.status(500).json({
+        success: false,
+        error: error.message || "Server Error",
+      });
     }
   }
 );
