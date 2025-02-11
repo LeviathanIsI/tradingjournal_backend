@@ -810,8 +810,10 @@ router.get(
   async (req, res) => {
     try {
       if (!req.user) {
-        throw new Error("No user returned from Google authentication");
+        throw new Error("❌ No user returned from Google authentication");
       }
+
+      console.log("✅ Google OAuth Successful, User:", req.user);
 
       let user = await User.findOne({ googleId: req.user.googleId });
 
@@ -833,15 +835,19 @@ router.get(
         { expiresIn: "30d" }
       );
 
-      // 🔹 Dynamically redirect to the correct environment
-      const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-      res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
-    } catch (error) {
-      console.error("Google callback error:", error);
+      console.log(
+        "✅ Redirecting to:",
+        `${process.env.FRONTEND_URL}/auth/google/success?token=${token}`
+      );
+
+      // Ensure proper redirect to frontend
       res.redirect(
-        `${
-          process.env.FRONTEND_URL || "http://localhost:5173"
-        }/login?error=google_callback_failed`
+        `${process.env.FRONTEND_URL}/auth/google/success?token=${token}`
+      );
+    } catch (error) {
+      console.error("❌ Google callback error:", error);
+      res.redirect(
+        `${process.env.FRONTEND_URL}/login?error=google_callback_failed`
       );
     }
   }
