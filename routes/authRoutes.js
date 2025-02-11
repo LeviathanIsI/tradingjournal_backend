@@ -801,7 +801,7 @@ router.get(
 router.get(
   "/google/callback",
   async (req, res, next) => {
-    console.log("🔹 Received Google OAuth callback");
+    console.log("🔹 Google OAuth Callback Triggered");
     console.log("🔹 Query Params:", req.query);
 
     next();
@@ -809,13 +809,16 @@ router.get(
   passport.authenticate("google", { session: false }),
   async (req, res) => {
     try {
+      console.log("✅ Passport Middleware Executed");
+
       if (!req.user) {
-        console.error("❌ No user returned from Google authentication");
-        throw new Error("No user object returned from Google authentication");
+        console.error("❌ No user object returned from Google authentication");
+        throw new Error("No user returned from authentication.");
       }
 
-      console.log("✅ User authenticated:", req.user);
+      console.log("✅ User Authenticated:", req.user);
 
+      // Generate JWT
       const token = jwt.sign(
         { id: req.user._id, googleAuth: true },
         process.env.JWT_SECRET,
@@ -824,6 +827,7 @@ router.get(
 
       console.log("✅ JWT Token Generated:", token);
 
+      // Redirect to frontend with token
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
       res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
     } catch (error) {
