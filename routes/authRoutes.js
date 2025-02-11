@@ -800,62 +800,35 @@ router.get(
 // Google OAuth callback
 router.get(
   "/google/callback",
-  (req, res, next) => {
-    console.log("🔄 Google OAuth Callback Triggered");
-    console.log("📌 Query Params:", req.query);
+  async (req, res, next) => {
+    console.log("🔹 Received Google OAuth callback");
+    console.log("🔹 Query Params:", req.query);
+
     next();
   },
-  passport.authenticate("google", {
-    session: false,
-    failureRedirect: `${process.env.FRONTEND_URL}/login?error=google_callback_failed`,
-  }),
+  passport.authenticate("google", { session: false }),
   async (req, res) => {
     try {
       if (!req.user) {
         console.error("❌ No user returned from Google authentication");
-        return res.redirect(
-          `${process.env.FRONTEND_URL}/login?error=google_callback_failed`
-        );
+        throw new Error("No user object returned from Google authentication");
       }
 
-      console.log("✅ Google User Authenticated:", req.user);
-
-      let user = await User.findOne({ googleId: req.user.googleId });
-
-      if (!user) {
-        console.log("🆕 Creating New User...");
-        user = await User.create({
-          username: req.user.username,
-          email: req.user.email,
-          googleId: req.user.googleId,
-          googleAuth: true,
-        });
-      } else {
-        console.log("🔄 Existing User Found, Updating GoogleAuth Status...");
-        user.googleAuth = true;
-        await user.save();
-      }
+      console.log("✅ User authenticated:", req.user);
 
       const token = jwt.sign(
-        { id: user._id, googleAuth: true },
+        { id: req.user._id, googleAuth: true },
         process.env.JWT_SECRET,
         { expiresIn: "30d" }
       );
 
-      console.log("🔑 Generated Token:", token);
+      console.log("✅ JWT Token Generated:", token);
 
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-      console.log(
-        "🌐 Redirecting to:",
-        `${FRONTEND_URL}/auth/google/success?token=${token}`
-      );
-
       res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
     } catch (error) {
-      console.error("❌ Google Callback Error:", error);
-      res.redirect(
-        `${process.env.FRONTEND_URL}/login?error=google_callback_failed`
-      );
+      console.error("❌ Google OAuth Callback Error:", error);
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 );
