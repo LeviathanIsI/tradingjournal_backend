@@ -800,20 +800,25 @@ router.get(
 // Google OAuth callback
 router.get(
   "/google/callback",
+  (req, res, next) => {
+    console.log("🔄 Google OAuth Callback Triggered");
+    console.log("📌 Query Params:", req.query);
+    next();
+  },
   passport.authenticate("google", {
     session: false,
-    failureRedirect: `${
-      process.env.FRONTEND_URL || "http://localhost:5173"
-    }/login`,
+    failureRedirect: `${process.env.FRONTEND_URL}/login?error=google_callback_failed`,
   }),
   async (req, res) => {
     try {
-      console.log("🔄 Google Callback Hit");
-      console.log("📌 Request User:", req.user);
-
       if (!req.user) {
-        throw new Error("❌ No user returned from Google authentication");
+        console.error("❌ No user returned from Google authentication");
+        return res.redirect(
+          `${process.env.FRONTEND_URL}/login?error=google_callback_failed`
+        );
       }
+
+      console.log("✅ Google User Authenticated:", req.user);
 
       let user = await User.findOne({ googleId: req.user.googleId });
 
@@ -826,28 +831,31 @@ router.get(
           googleAuth: true,
         });
       } else {
-        console.log("✅ Existing User Found, Updating GoogleAuth Status...");
+        console.log("🔄 Existing User Found, Updating GoogleAuth Status...");
         user.googleAuth = true;
         await user.save();
       }
 
-      console.log("🔑 Generating JWT...");
       const token = jwt.sign(
         { id: user._id, googleAuth: true },
         process.env.JWT_SECRET,
         { expiresIn: "30d" }
       );
 
-      console.log("✅ Token Generated:", token);
+      console.log("🔑 Generated Token:", token);
 
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+      console.log(
+        "🌐 Redirecting to:",
+        `${FRONTEND_URL}/auth/google/success?token=${token}`
+      );
+
       res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
     } catch (error) {
-      console.error("❌ Google callback error:", error);
-      res.status(500).json({
-        success: false,
-        error: error.message || "Server Error",
-      });
+      console.error("❌ Google Callback Error:", error);
+      res.redirect(
+        `${process.env.FRONTEND_URL}/login?error=google_callback_failed`
+      );
     }
   }
 );
