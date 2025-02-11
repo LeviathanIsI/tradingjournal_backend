@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       sparse: true,
     },
+    googleAuth: { type: Boolean, default: false },
     securityQuestions: {
       question1: {
         question: {
@@ -142,18 +143,13 @@ const userSchema = new mongoose.Schema(
     },
     tradingStyle: {
       type: String,
-      enum: ["Day Trader", "Swing Trader", "Position Trader", "Scalper"],
-    },
-    tourStatus: {
-      dashboardTourCompleted: { type: Boolean, default: false },
-      communityTourCompleted: { type: Boolean, default: false },
-      tradePlanningTourCompleted: { type: Boolean, default: false },
-      communityNavTourCompleted: { type: Boolean, default: false },
-      reviewsTourCompleted: { type: Boolean, default: false },
-      tradersTourCompleted: { type: Boolean, default: false },
-      leaderboardTourCompleted: { type: Boolean, default: false },
-      featuredTourCompleted: { type: Boolean, default: false },
-      profileTourCompleted: { type: Boolean, default: false },
+      enum: [
+        "Select a style",
+        "Day Trader",
+        "Swing Trader",
+        "Position Trader",
+        "Scalper",
+      ],
     },
   },
   {

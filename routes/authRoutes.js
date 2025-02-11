@@ -8,9 +8,9 @@ const { protect } = require("../middleware/authMiddleware");
 const TradeReview = require("../models/TradeReview");
 
 // Generate JWT
-const generateToken = (id, rememberMe = false) => {
+const generateToken = (id, googleAuth = false, rememberMe = false) => {
   const expiresIn = rememberMe ? "5d" : "2h";
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
+  return jwt.sign({ id, googleAuth }, process.env.JWT_SECRET, {
     expiresIn,
   });
 };
@@ -58,7 +58,6 @@ router.post("/register", async (req, res) => {
         _id: user._id,
         username: user.username,
         email: user.email,
-        tourStatus: user.tourStatus,
         token: generateToken(user._id),
       },
     });
@@ -92,8 +91,8 @@ router.post("/login", async (req, res) => {
         username: user.username,
         email: user.email,
         preferences: user.preferences,
-        tourStatus: user.tourStatus,
-        token: generateToken(user._id, rememberMe),
+        googleAuth: user.googleAuth,
+        token: generateToken(user._id, user.googleAuth, rememberMe),
       },
     });
   } catch (error) {
@@ -530,44 +529,6 @@ router.get("/validate", protect, async (req, res) => {
   }
 });
 
-router.post("/complete-tour/:page", protect, async (req, res) => {
-  const { page } = req.params;
-  const validPages = [
-    "dashboard",
-    "community",
-    "tradePlanning",
-    "communityNav",
-    "reviews",
-    "traders",
-    "leaderboard",
-    "featured",
-    "profile",
-  ];
-
-  if (!validPages.includes(page)) {
-    return res.status(400).json({
-      success: false,
-      error: "Invalid page",
-      message: `Valid pages are: ${validPages.join(", ")}`,
-    });
-  }
-
-  try {
-    const tourField = `tourStatus.${page}TourCompleted`;
-    await User.findByIdAndUpdate(
-      req.user._id,
-      {
-        $set: { [tourField]: true },
-      },
-      { new: true }
-    );
-
-    res.json({ success: true });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
-  }
-});
-
 // Get network data
 router.get("/network/:userId", protect, async (req, res) => {
   try {
@@ -616,32 +577,6 @@ router.get("/network/:userId", protect, async (req, res) => {
     res.json({
       success: true,
       data: networkData,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error.message,
-    });
-  }
-});
-
-// @desc    Complete a tour
-// @route   POST /api/auth/complete-tour/:tourId
-// @access  Private
-router.post("/complete-tour/:tourId", protect, async (req, res) => {
-  try {
-    const tourId = req.params.tourId;
-    const tourStatusKey = `tourStatus.${tourId}TourCompleted`;
-
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { $set: { [tourStatusKey]: true } },
-      { new: true }
-    ).select("-password");
-
-    res.json({
-      success: true,
-      data: user,
     });
   } catch (error) {
     res.status(400).json({
@@ -782,36 +717,74 @@ router.post("/forgot-password/verify", async (req, res) => {
 
 // Add this to your authRoutes.js file
 // Reset password with token
-router.post("/reset-password", async (req, res) => {
+router.put("/set-password", protect, async (req, res) => {
   try {
-    const { resetToken, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user._id).select("+password");
 
-    // Verify token
-    const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
-    if (decoded.type !== "reset") {
-      throw new Error("Invalid reset token");
-    }
-
-    // Find user and update password
-    const user = await User.findById(decoded.id);
     if (!user) {
-      throw new Error("User not found");
+      return res.status(404).json({ success: false, error: "User not found" });
     }
 
-    // Set new password (it will be hashed by the pre-save middleware)
+    // If the user signed up with Google and has no password, allow setting a new password directly
+    if (user.googleAuth) {
+      user.password = newPassword;
+      user.googleAuth = false; // Update googleAuth to false
+      await user.save();
+      return res.json({
+        success: true,
+        message: "Password set successfully",
+        data: user,
+      });
+    }
+
+    // If the user has an existing password, require the current password for security
+    if (!user.password || !(await user.matchPassword(currentPassword))) {
+      return res
+        .status(401)
+        .json({ success: false, error: "Invalid current password" });
+    }
+
     user.password = newPassword;
     await user.save();
-
     res.json({
       success: true,
-      message: "Password reset successful",
+      message: "Password updated successfully",
+      data: user,
     });
   } catch (error) {
-    console.error("Reset password error:", error);
-    res.status(400).json({
-      success: false,
-      error: error.message,
-    });
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.put("/set-password", protect, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user._id).select("+password");
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    // If the user signed up with Google and has no password, allow setting a new password directly
+    if (user.googleAuth) {
+      user.password = newPassword;
+      await user.save();
+      return res.json({ success: true, message: "Password set successfully" });
+    }
+
+    // If the user has an existing password, require the current password for security
+    if (!user.password || !(await user.matchPassword(currentPassword))) {
+      return res
+        .status(401)
+        .json({ success: false, error: "Invalid current password" });
+    }
+
+    user.password = newPassword;
+    await user.save();
+    res.json({ success: true, message: "Password updated successfully" });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 
@@ -837,11 +810,26 @@ router.get(
         throw new Error("No user returned from Google authentication");
       }
 
-      const token = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET, {
-        expiresIn: "30d",
-      });
+      let user = await User.findOne({ googleId: req.user.googleId });
 
-      // Ensure that the user is correctly stored in the session or JWT
+      if (!user) {
+        user = await User.create({
+          username: req.user.username,
+          email: req.user.email,
+          googleId: req.user.googleId,
+          googleAuth: true,
+        });
+      } else {
+        user.googleAuth = true;
+        await user.save();
+      }
+
+      const token = jwt.sign(
+        { id: user._id, googleAuth: true },
+        process.env.JWT_SECRET,
+        { expiresIn: "30d" }
+      );
+
       res.redirect(`http://localhost:5173/auth/google/success?token=${token}`);
     } catch (error) {
       console.error("Google callback error:", error);
@@ -861,6 +849,8 @@ router.get("/google/success", async (req, res) => {
       throw new Error("User not found");
     }
 
+    const rememberMe = req.query.rememberMe === "true";
+
     res.json({
       success: true,
       data: {
@@ -868,7 +858,8 @@ router.get("/google/success", async (req, res) => {
         username: user.username,
         email: user.email,
         preferences: user.preferences,
-        token,
+        googleAuth: user.googleAuth,
+        token: generateToken(user._id, user.googleAuth, rememberMe),
       },
     });
   } catch (error) {
