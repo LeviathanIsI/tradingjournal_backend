@@ -1,15 +1,17 @@
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
+const passport = require("passport");
 const User = require("../models/User");
 const Trade = require("../models/Trade");
 const { protect } = require("../middleware/authMiddleware");
 const TradeReview = require("../models/TradeReview");
 
 // Generate JWT
-const generateToken = (id) => {
+const generateToken = (id, rememberMe = false) => {
+  const expiresIn = rememberMe ? "5d" : "2h";
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: "30d",
+    expiresIn,
   });
 };
 
@@ -73,7 +75,7 @@ router.post("/register", async (req, res) => {
 // @access  Public
 router.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, rememberMe } = req.body;
     const user = await User.findOne({ email }).select("+password");
 
     if (!user || !(await user.matchPassword(password))) {
@@ -91,7 +93,7 @@ router.post("/login", async (req, res) => {
         email: user.email,
         preferences: user.preferences,
         tourStatus: user.tourStatus,
-        token: generateToken(user._id),
+        token: generateToken(user._id, rememberMe),
       },
     });
   } catch (error) {
@@ -809,6 +811,71 @@ router.post("/reset-password", async (req, res) => {
     res.status(400).json({
       success: false,
       error: error.message,
+    });
+  }
+});
+
+// Initiate Google OAuth flow
+router.get(
+  "/google",
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    session: false,
+  })
+);
+
+// Google OAuth callback
+router.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: "http://localhost:5173/login",
+  }),
+  async (req, res) => {
+    try {
+      if (!req.user) {
+        throw new Error("No user returned from Google authentication");
+      }
+
+      const token = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET, {
+        expiresIn: "30d",
+      });
+
+      // Ensure that the user is correctly stored in the session or JWT
+      res.redirect(`http://localhost:5173/auth/google/success?token=${token}`);
+    } catch (error) {
+      console.error("Google callback error:", error);
+      res.redirect("http://localhost:5173/login?error=google_callback_failed");
+    }
+  }
+);
+
+// Handle successful Google sign-in on frontend
+router.get("/google/success", async (req, res) => {
+  try {
+    const { token } = req.query;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id).select("-password");
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    res.json({
+      success: true,
+      data: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        preferences: user.preferences,
+        token,
+      },
+    });
+  } catch (error) {
+    console.error("Error in success handler:", error);
+    res.status(401).json({
+      success: false,
+      error: "Invalid token",
     });
   }
 });

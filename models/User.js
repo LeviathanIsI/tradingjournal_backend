@@ -22,41 +22,77 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
+      required: function () {
+        return !this.googleId;
+      },
       minlength: 6,
       select: false,
+    },
+    googleId: {
+      type: String,
+      sparse: true,
     },
     securityQuestions: {
       question1: {
         question: {
           type: String,
-          required: [true, "Security question 1 is required"],
+          required: [
+            function () {
+              return !this.googleId;
+            },
+            "Security question 1 is required for non-Google accounts",
+          ],
         },
         answer: {
           type: String,
-          required: [true, "Answer to security question 1 is required"],
+          required: [
+            function () {
+              return !this.googleId;
+            },
+            "Answer to security question 1 is required for non-Google accounts",
+          ],
           select: false,
         },
       },
       question2: {
         question: {
           type: String,
-          required: [true, "Security question 2 is required"],
+          required: [
+            function () {
+              return !this.googleId;
+            },
+            "Security question 2 is required for non-Google accounts",
+          ],
         },
         answer: {
           type: String,
-          required: [true, "Answer to security question 2 is required"],
+          required: [
+            function () {
+              return !this.googleId;
+            },
+            "Answer to security question 2 is required for non-Google accounts",
+          ],
           select: false,
         },
       },
       question3: {
         question: {
           type: String,
-          required: [true, "Security question 3 is required"],
+          required: [
+            function () {
+              return !this.googleId;
+            },
+            "Security question 3 is required for non-Google accounts",
+          ],
         },
         answer: {
           type: String,
-          required: [true, "Answer to security question 3 is required"],
+          required: [
+            function () {
+              return !this.googleId;
+            },
+            "Answer to security question 3 is required for non-Google accounts",
+          ],
           select: false,
         },
       },

@@ -22,6 +22,8 @@
     "moment-timezone": "^0.5.47",
     "mongoose": "^8.9.4",
     "node-cron": "^3.0.3",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
     "xml2js": "^0.6.2"
   },
   "devDependencies": {

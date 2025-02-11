@@ -11,17 +11,8 @@ const scheduleFeaturedReviews = () => {
   cron.schedule(
     "0 6 * * *",
     async () => {
-      console.log(
-        "Running featured reviews update...",
-        new Date().toLocaleString()
-      );
       try {
         const updatedReviews = await updateFeaturedReviews();
-        console.log(
-          `Featured reviews update completed. Updated ${
-            updatedReviews?.length || 0
-          } reviews`
-        );
       } catch (error) {
         console.error("Error in featured reviews scheduled update:", error);
       }
