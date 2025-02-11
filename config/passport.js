@@ -11,43 +11,44 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://rivyl.app/auth/google/callback",
+      callbackURL: process.env.FRONTEND_URL
+        ? `${process.env.FRONTEND_URL}/auth/google/callback`
+        : "http://localhost:5173/auth/google/callback",
       scope: ["profile", "email"],
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        console.log("🔄 Google OAuth Strategy Triggered");
-        console.log("📌 Google Profile:", profile);
+        console.log("✅ Google OAuth Callback Triggered");
+        console.log("🔹 Access Token:", accessToken);
+        console.log("🔹 Refresh Token:", refreshToken);
+        console.log("🔹 Profile:", profile);
 
-        let user = await User.findOne({ googleId: profile.id });
+        let user = await User.findOne({ email: profile.emails[0].value });
 
-        if (!user) {
-          console.log("🆕 Creating New User...");
+        if (user) {
+          console.log("✅ User Found:", user);
+          if (!user.googleId) {
+            console.log("🔹 Updating user to store Google ID");
+            user.googleId = profile.id;
+            await user.save();
+          }
+          return done(null, user);
+        } else {
+          console.log("🔹 Creating new user");
           user = await User.create({
             username: profile.displayName,
             email: profile.emails[0].value,
             googleId: profile.id,
-            googleAuth: true,
           });
-        } else {
-          console.log("✅ Existing User Found, Updating GoogleAuth Status...");
-          user.googleAuth = true;
-          await user.save();
+          return done(null, user);
         }
-
-        console.log("🔑 Successfully Authenticated:", user);
-        return done(null, user);
       } catch (error) {
-        console.error("❌ Error in Google OAuth Strategy:", error);
+        console.error("❌ Error in Google strategy:", error);
         return done(error, null);
       }
     }
   )
 );
-
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
 
 passport.deserializeUser(async (id, done) => {
   try {
