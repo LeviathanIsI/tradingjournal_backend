@@ -798,11 +798,14 @@ router.get(
 );
 
 // Google OAuth callback
+// Google OAuth callback
 router.get(
   "/google/callback",
   passport.authenticate("google", {
     session: false,
-    failureRedirect: "http://localhost:5173/login",
+    failureRedirect: `${
+      process.env.FRONTEND_URL || "http://localhost:5173"
+    }/login`,
   }),
   async (req, res) => {
     try {
@@ -830,10 +833,16 @@ router.get(
         { expiresIn: "30d" }
       );
 
-      res.redirect(`http://localhost:5173/auth/google/success?token=${token}`);
+      // 🔹 Dynamically redirect to the correct environment
+      const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+      res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
     } catch (error) {
       console.error("Google callback error:", error);
-      res.redirect("http://localhost:5173/login?error=google_callback_failed");
+      res.redirect(
+        `${
+          process.env.FRONTEND_URL || "http://localhost:5173"
+        }/login?error=google_callback_failed`
+      );
     }
   }
 );
