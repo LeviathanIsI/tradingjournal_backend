@@ -11,31 +11,34 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://www.rivyl.app/auth/google/callback",
+      callbackURL: "https://rivyl.app/auth/google/callback",
       scope: ["profile", "email"],
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        let user = await User.findOne({ email: profile.emails[0].value });
+        console.log("🔄 Google OAuth Strategy Triggered");
+        console.log("📌 Google Profile:", profile);
 
-        if (user) {
-          // If user exists but doesn't have Google ID, update it
-          if (!user.googleId) {
-            user.googleId = profile.id;
-            await user.save();
-          }
-          return done(null, user);
-        } else {
-          // If the user does not exist, create a new one
+        let user = await User.findOne({ googleId: profile.id });
+
+        if (!user) {
+          console.log("🆕 Creating New User...");
           user = await User.create({
             username: profile.displayName,
             email: profile.emails[0].value,
             googleId: profile.id,
+            googleAuth: true,
           });
-          return done(null, user);
+        } else {
+          console.log("✅ Existing User Found, Updating GoogleAuth Status...");
+          user.googleAuth = true;
+          await user.save();
         }
+
+        console.log("🔑 Successfully Authenticated:", user);
+        return done(null, user);
       } catch (error) {
-        console.error("Error in Google strategy:", error);
+        console.error("❌ Error in Google OAuth Strategy:", error);
         return done(error, null);
       }
     }
