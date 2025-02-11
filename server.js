@@ -9,6 +9,22 @@ const tradePlanRoutes = require("./routes/tradePlanRoutes");
 const tradeReviewRoutes = require("./routes/tradeReviewRoutes");
 const { scheduleFeaturedReviews } = require("./schedulers/index");
 
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || "https://rivyl.app",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+app.options("*", (req, res) => {
+  res.set("Access-Control-Allow-Origin", "https://rivyl.app");
+  res.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.set("Access-Control-Allow-Credentials", "true");
+  res.status(204).end();
+});
+
 dotenv.config();
 connectDB();
 
@@ -16,14 +32,6 @@ const app = express();
 
 // Middleware
 app.use(express.json());
-app.use(
-  cors({
-    origin: ["*"],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
 
 // Configure passport
 require("./config/passport");
