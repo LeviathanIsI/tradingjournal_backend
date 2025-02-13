@@ -6,6 +6,7 @@ const User = require("../models/User");
 const Trade = require("../models/Trade");
 const { protect } = require("../middleware/authMiddleware");
 const TradeReview = require("../models/TradeReview");
+const mongoose = require("mongoose");
 
 // Generate JWT
 const generateToken = (id, googleAuth = false, rememberMe = false) => {
@@ -867,6 +868,86 @@ router.get("/google/success", async (req, res) => {
       success: false,
       error: "Invalid token",
     });
+  }
+});
+
+// Update the delete account route in authRoutes.js
+// In authRoutes.js
+router.delete("/delete-account", protect, async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const user = await User.findById(req.user._id).select(
+      "+securityQuestions.question1.answer +securityQuestions.question2.answer +securityQuestions.question3.answer"
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    // Store original username and create a better display name
+    const originalUsername = user.username;
+    const displayName = `Deleted User [${originalUsername}]`;
+
+    try {
+      await User.findByIdAndUpdate(
+        user._id,
+        {
+          $set: {
+            isDeleted: true,
+            email: null,
+            username: displayName,
+            password: undefined,
+            googleId: undefined,
+            googleAuth: undefined,
+            securityQuestions: undefined,
+            bio: "[Account Deleted]",
+            followers: [],
+            following: [],
+            deletedAt: new Date(),
+            preferences: {
+              defaultCurrency: "USD",
+              timeZone: "UTC",
+              startingCapital: 0,
+              experienceLevel: "auto",
+            },
+          },
+        },
+        { session }
+      );
+
+      // Update reviews with the new format
+      await TradeReview.updateMany(
+        { user: user._id },
+        {
+          $set: {
+            "metadata.originalUsername": originalUsername,
+            "metadata.userDisplayName": displayName,
+            "metadata.userDeleted": true,
+          },
+        },
+        { session }
+      );
+
+      await session.commitTransaction();
+      res.json({
+        success: true,
+        message: "Account successfully deleted",
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    }
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Account deletion error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
   }
 });
 

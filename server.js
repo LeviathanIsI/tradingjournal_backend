@@ -14,9 +14,20 @@ connectDB();
 
 const app = express();
 
+const allowedOrigins = [
+  "https://rivyl.app",
+  "http://localhost:5173",
+];
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "https://rivyl.app",
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS policy violation: " + origin));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],

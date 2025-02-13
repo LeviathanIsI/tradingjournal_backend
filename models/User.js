@@ -202,20 +202,18 @@ userSchema.pre("save", async function (next) {
 });
 
 // Add method to verify security answers
-userSchema.methods.verifySecurityAnswer = async function (
-  questionKey,
-  providedAnswer
-) {
-  try {
-    const storedAnswer = this.securityQuestions[questionKey].answer;
-    return await bcrypt.compare(
-      providedAnswer.toLowerCase().trim(),
-      storedAnswer
-    );
-  } catch (error) {
-    console.error("Answer verification error:", error); // Add this for debugging
-    return false;
+userSchema.methods.verifySecurityAnswer = async function (questionKey, answer) {
+  if (!this.securityQuestions || !this.securityQuestions[questionKey]) {
+    throw new Error(`Security question ${questionKey} not found.`);
   }
+
+  const storedAnswer = this.securityQuestions[questionKey].answer;
+  if (!storedAnswer || !answer) {
+    throw new Error("Invalid security answer provided.");
+  }
+
+  // 🛠️ Compare hashed answer with user input
+  return await bcrypt.compare(answer.toLowerCase().trim(), storedAnswer);
 };
 
 // Method to compare entered password with hashed password
