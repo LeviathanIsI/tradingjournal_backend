@@ -18,23 +18,16 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        console.log("✅ Google OAuth Callback Triggered");
-        console.log("🔹 Access Token:", accessToken);
-        console.log("🔹 Refresh Token:", refreshToken);
-        console.log("🔹 Profile:", profile);
 
         let user = await User.findOne({ email: profile.emails[0].value });
 
         if (user) {
-          console.log("✅ User Found:", user);
           if (!user.googleId) {
-            console.log("🔹 Updating user to store Google ID");
             user.googleId = profile.id;
             await user.save();
           }
           return done(null, user);
         } else {
-          console.log("🔹 Creating new user");
           user = await User.create({
             username: profile.displayName,
             email: profile.emails[0].value,

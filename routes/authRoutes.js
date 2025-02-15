@@ -789,53 +789,60 @@ router.put("/set-password", protect, async (req, res) => {
   }
 });
 
-// Initiate Google OAuth flow
+// Single Google OAuth initialization route
 router.get(
   "/google",
   passport.authenticate("google", {
     scope: ["profile", "email"],
     session: false,
+    prompt: "select_account", // Force account selection
+    accessType: "online", // Don't persist access
   })
 );
 
-// Google OAuth callback
+// Single Google OAuth callback route
 router.get(
   "/google/callback",
   async (req, res, next) => {
-    console.log("🔹 Google OAuth Callback Triggered");
-    console.log("🔹 Query Params:", req.query);
-
     next();
   },
-  passport.authenticate("google", { session: false }),
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: "/login",
+  }),
   async (req, res) => {
     try {
-      console.log("✅ Passport Middleware Executed");
 
       if (!req.user) {
         console.error("❌ No user object returned from Google authentication");
         throw new Error("No user returned from authentication.");
       }
 
-      console.log("✅ User Authenticated:", req.user);
-
-      // Generate JWT
       const token = jwt.sign(
         { id: req.user._id, googleAuth: true },
         process.env.JWT_SECRET,
-        { expiresIn: "30d" }
+        { expiresIn: "2h" }
       );
 
-      console.log("✅ JWT Token Generated:", token);
-
-      // Redirect to frontend with token
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
       res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
     } catch (error) {
       console.error("❌ Google OAuth Callback Error:", error);
-      res.status(500).json({ success: false, error: error.message });
+      const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+      res.redirect(`${FRONTEND_URL}/login?error=auth_failed`);
     }
   }
+);
+
+// Also update the initial Google auth route
+router.get(
+  "/google",
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    session: false,
+    prompt: "select_account", // Force account selection
+    accessType: "online", // Don't persist access
+  })
 );
 
 // Handle successful Google sign-in on frontend
@@ -886,7 +893,47 @@ router.delete("/delete-account", protect, async (req, res) => {
       return res.status(404).json({ success: false, error: "User not found" });
     }
 
-    // Store original username and create a better display name
+    // Only verify security questions if user has them (non-Google auth users)
+    if (!user.googleAuth && user.securityQuestions) {
+      const { answers } = req.body;
+
+      if (
+        !answers ||
+        !answers.answer1 ||
+        !answers.answer2 ||
+        !answers.answer3
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "All security questions must be answered.",
+        });
+      }
+
+      // Verify each answer
+      const isAnswer1Correct = await user.verifySecurityAnswer(
+        "question1",
+        answers.answer1
+      );
+      const isAnswer2Correct = await user.verifySecurityAnswer(
+        "question2",
+        answers.answer2
+      );
+      const isAnswer3Correct = await user.verifySecurityAnswer(
+        "question3",
+        answers.answer3
+      );
+
+      if (!isAnswer1Correct || !isAnswer2Correct || !isAnswer3Correct) {
+        return res.status(401).json({
+          success: false,
+          error: "Incorrect security answers.",
+        });
+      }
+    }
+
+    // Rest of the deletion logic remains the same...
+
+    // Store original username and create display name
     const originalUsername = user.username;
     const displayName = `Deleted User [${originalUsername}]`;
 
@@ -925,6 +972,7 @@ router.delete("/delete-account", protect, async (req, res) => {
             "metadata.originalUsername": originalUsername,
             "metadata.userDisplayName": displayName,
             "metadata.userDeleted": true,
+            "metadata.wasGoogleAuth": user.googleAuth, // Store if they were Google auth
           },
         },
         { session }
