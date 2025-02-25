@@ -151,6 +151,28 @@ const userSchema = new mongoose.Schema(
         "Scalper",
       ],
     },
+    subscription: {
+      active: { type: Boolean, default: false },
+      type: { type: String, enum: ["monthly", "yearly", null], default: null },
+      stripeCustomerId: { type: String },
+      stripeSubscriptionId: { type: String },
+      currentPeriodEnd: { type: Date },
+      cancelAtPeriodEnd: { type: Boolean, default: false },
+      paymentStatus: {
+        type: String,
+        enum: ["active", "failed", "past_due"],
+        default: "active",
+      },
+      latestInvoiceId: { type: String },
+      latestPaymentIntentId: { type: String },
+      failedPaymentAttempts: { type: Number, default: 0 },
+      lastFourDigits: { type: String },
+    },
+    specialAccess: {
+      hasAccess: { type: Boolean, default: false },
+      expiresAt: { type: Date, default: null },
+      reason: { type: String, default: "other" },
+    },
   },
   {
     timestamps: true,

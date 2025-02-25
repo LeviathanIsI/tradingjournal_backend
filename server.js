@@ -1,23 +1,25 @@
-const express = require("express");
 const dotenv = require("dotenv");
+dotenv.config();
+const express = require("express");
 const cors = require("cors");
 const passport = require("passport");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const tradeRoutes = require("./routes/tradeRoutes");
+const optionTradeRoutes = require("./routes/optionTradeRoutes");
 const tradePlanRoutes = require("./routes/tradePlanRoutes");
 const tradeReviewRoutes = require("./routes/tradeReviewRoutes");
 const { scheduleFeaturedReviews } = require("./schedulers/index");
 
-dotenv.config();
+console.log("Environment Variables:", {
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "Exists" : "Not found",
+  NODE_ENV: process.env.NODE_ENV,
+});
 connectDB();
 
 const app = express();
 
-const allowedOrigins = [
-  "https://rivyl.app",
-  "http://localhost:5173",
-];
+const allowedOrigins = ["https://rivyl.app", "http://localhost:5173"];
 
 app.use(
   cors({
@@ -36,8 +38,17 @@ app.use(
 
 app.options("*", cors());
 
-// Middleware
-app.use(express.json());
+// Special handling for Stripe webhook - MUST come before express.json middleware
+app.post("/api/auth/webhook", express.raw({ type: "application/json" }));
+
+// Regular parsing middleware for all other routes
+app.use((req, res, next) => {
+  if (req.originalUrl === "/api/auth/webhook") {
+    next();
+  } else {
+    express.json()(req, res, next);
+  }
+});
 
 // Configure passport
 require("./config/passport");
@@ -45,6 +56,7 @@ require("./config/passport");
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/trades", tradeRoutes);
+app.use("/api/option-trades", optionTradeRoutes);
 app.use("/api/trade-plans", tradePlanRoutes);
 app.use("/api/trade-reviews", tradeReviewRoutes);
 app.use(passport.initialize());

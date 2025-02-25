@@ -7,6 +7,14 @@ const Trade = require("../models/Trade");
 const { protect } = require("../middleware/authMiddleware");
 const TradeReview = require("../models/TradeReview");
 const mongoose = require("mongoose");
+const stripe = require("../config/stripe");
+
+// Add at the top with your other imports
+const sendEmail = async (to, subject, text) => {
+  // Implement your email sending logic here
+  // You can use nodemailer or another email service
+  console.log(`Would send email to ${to}: ${subject} - ${text}`);
+};
 
 // Generate JWT
 const generateToken = (id, googleAuth = false, rememberMe = false) => {
@@ -16,12 +24,193 @@ const generateToken = (id, googleAuth = false, rememberMe = false) => {
   });
 };
 
+// Stripe webhook handler
+router.post("/webhook", async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object;
+        const user = await User.findById(session.metadata.userId);
+
+        if (user) {
+          const subscription = await stripe.subscriptions.retrieve(
+            session.subscription
+          );
+
+          user.subscription = {
+            ...user.subscription,
+            active: true,
+            type: session.metadata.planType,
+            stripeSubscriptionId: session.subscription,
+            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            cancelAtPeriodEnd: false,
+            paymentStatus: "succeeded",
+          };
+
+          await user.save();
+        }
+        break;
+      }
+
+      case "customer.subscription.updated": {
+        const subscription = event.data.object;
+        const user = await User.findOne({
+          "subscription.stripeSubscriptionId": subscription.id,
+        });
+
+        if (user) {
+          user.subscription.currentPeriodEnd = new Date(
+            subscription.current_period_end * 1000
+          );
+          await user.save();
+        }
+        break;
+      }
+
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object;
+        const user = await User.findOne({
+          "subscription.stripeSubscriptionId": subscription.id,
+        });
+
+        if (user) {
+          user.subscription.active = false;
+          user.subscription.type = null;
+          user.subscription.stripeSubscriptionId = null;
+          user.subscription.currentPeriodEnd = null;
+          user.subscription.cancelAtPeriodEnd = false;
+          await user.save();
+        }
+        break;
+      }
+
+      case "payment_method.attached": {
+        const paymentMethod = event.data.object;
+        const user = await User.findOne({
+          "subscription.stripeCustomerId": paymentMethod.customer,
+        });
+
+        if (user) {
+          user.subscription.lastFourDigits = paymentMethod.card.last4;
+          await user.save();
+        }
+        break;
+      }
+
+      case "invoice.payment_failed": {
+        const invoice = event.data.object;
+        const user = await User.findOne({
+          "subscription.stripeCustomerId": invoice.customer,
+        });
+
+        if (user) {
+          // Update subscription status to reflect failed payment
+          user.subscription.paymentStatus = "failed";
+          user.subscription.latestInvoiceId = invoice.id;
+
+          // Store payment intent for later use if needed
+          user.subscription.latestPaymentIntentId = invoice.payment_intent;
+
+          // Count failed payment attempts
+          user.subscription.failedPaymentAttempts =
+            (user.subscription.failedPaymentAttempts || 0) + 1;
+
+          // After 3 failed attempts, mark subscription for cancellation
+          if (user.subscription.failedPaymentAttempts >= 3) {
+            user.subscription.cancelAtPeriodEnd = true;
+          }
+
+          await user.save();
+
+          console.log(
+            `Payment failed for user ${user._id}. Attempt #${user.subscription.failedPaymentAttempts}`
+          );
+        }
+        break;
+      }
+    }
+
+    res.json({ success: true, received: true });
+  } catch (error) {
+    console.error("Webhook error:", error.message);
+    return res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.post("/create-portal-session", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user.subscription.stripeCustomerId) {
+      return res.status(400).json({
+        success: false,
+        error: "No subscription found",
+      });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.subscription.stripeCustomerId,
+      return_url: `${process.env.FRONTEND_URL}/settings`,
+    });
+
+    res.json({
+      success: true,
+      url: session.url,
+    });
+  } catch (error) {
+    console.error("Error creating portal session:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Add this with your other routes in authRoutes.js
+router.post("/cancel-subscription", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user.subscription.stripeSubscriptionId) {
+      return res.status(400).json({
+        success: false,
+        error: "No active subscription found",
+      });
+    }
+
+    // Cancel subscription with Stripe
+    await stripe.subscriptions.update(user.subscription.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    // Update user subscription status
+    user.subscription.cancelAtPeriodEnd = true;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Subscription will be canceled at the end of the billing period",
+      data: user.subscription,
+    });
+  } catch (error) {
+    console.error("Error canceling subscription:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // @desc    Register user
-// @route   POST /api/auth/register
-// @access  Public
-// @desc    Register user
-// @route   POST /api/auth/register
-// @access  Public
 router.post("/register", async (req, res) => {
   try {
     const { username, email, password, securityQuestions } = req.body;
@@ -70,9 +259,6 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
 router.post("/login", async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body;
@@ -93,6 +279,7 @@ router.post("/login", async (req, res) => {
         email: user.email,
         preferences: user.preferences,
         googleAuth: user.googleAuth,
+        specialAccess: user.specialAccess,
         token: generateToken(user._id, user.googleAuth, rememberMe),
       },
     });
@@ -190,6 +377,22 @@ router.get("/profile/:username", protect, async (req, res) => {
             $sum: { $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0] },
           },
           totalProfit: { $sum: "$profitLoss.realized" },
+        },
+      },
+      {
+        $addFields: {
+          winRate: {
+            $cond: [
+              { $eq: ["$totalTrades", 0] },
+              0,
+              {
+                $multiply: [
+                  { $divide: ["$winningTrades", "$totalTrades"] },
+                  100,
+                ],
+              },
+            ],
+          },
         },
       },
     ]);
@@ -515,6 +718,7 @@ router.put("/profile/password", protect, async (req, res) => {
   }
 });
 
+// Add this to your validate endpoint temporarily
 router.get("/validate", protect, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select("-password");
@@ -812,7 +1016,6 @@ router.get(
   }),
   async (req, res) => {
     try {
-
       if (!req.user) {
         console.error("❌ No user object returned from Google authentication");
         throw new Error("No user returned from authentication.");
@@ -996,6 +1199,293 @@ router.delete("/delete-account", protect, async (req, res) => {
     });
   } finally {
     session.endSession();
+  }
+});
+
+// Create checkout session
+router.post("/create-subscription", protect, async (req, res) => {
+  try {
+    const { planType, isReactivation } = req.body;
+    const user = await User.findById(req.user._id);
+
+    // If subscription is marked for cancellation, we want to allow a new subscription
+    if (user.subscription.active && !user.subscription.cancelAtPeriodEnd) {
+      return res.status(400).json({
+        success: false,
+        error: "User already has an active subscription",
+      });
+    }
+
+    // Create or get Stripe customer
+    let customerId = user.subscription.stripeCustomerId;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        metadata: {
+          userId: user._id.toString(),
+        },
+      });
+      customerId = customer.id;
+      user.subscription.stripeCustomerId = customerId;
+      await user.save();
+    }
+
+    // Create checkout session
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price:
+            planType === "yearly"
+              ? process.env.STRIPE_YEARLY_PRICE_ID
+              : process.env.STRIPE_MONTHLY_PRICE_ID,
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        userId: user._id.toString(),
+        planType,
+        isReactivation: isReactivation ? "true" : "false",
+      },
+      success_url: `${process.env.FRONTEND_URL}/dashboard?success=true`,
+      cancel_url: `${process.env.FRONTEND_URL}/settings?canceled=true`,
+    });
+
+    res.json({
+      success: true,
+      url: session.url,
+    });
+  } catch (error) {
+    console.error("Subscription error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get subscription status
+router.get("/subscription", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      data: user.subscription,
+    });
+  } catch (error) {
+    console.error("Subscription fetch error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch subscription status",
+    });
+  }
+});
+
+// Cancel subscription
+router.post("/cancel-subscription", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user.subscription.stripeSubscriptionId) {
+      return res.status(400).json({
+        success: false,
+        error: "No active subscription found",
+      });
+    }
+
+    // Cancel at period end
+    await stripe.subscriptions.update(user.subscription.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    user.subscription.cancelAtPeriodEnd = true;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Subscription will be canceled at the end of the billing period",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Update subscription plan
+router.post("/update-subscription", protect, async (req, res) => {
+  try {
+    const { planType } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (!user.subscription.stripeSubscriptionId) {
+      return res.status(400).json({
+        success: false,
+        error: "No active subscription found",
+      });
+    }
+
+    // Get the current subscription
+    const subscription = await stripe.subscriptions.retrieve(
+      user.subscription.stripeSubscriptionId
+    );
+
+    // Update the subscription with the new price
+    const updatedSubscription = await stripe.subscriptions.update(
+      user.subscription.stripeSubscriptionId,
+      {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price:
+              planType === "yearly"
+                ? process.env.STRIPE_YEARLY_PRICE_ID
+                : process.env.STRIPE_MONTHLY_PRICE_ID,
+          },
+        ],
+        proration_behavior: "always_invoice", // or 'create_prorations'
+        payment_behavior: "error_if_incomplete",
+      }
+    );
+
+    // Update user in database
+    user.subscription.type = planType;
+    user.subscription.currentPeriodEnd = new Date(
+      updatedSubscription.current_period_end * 1000
+    );
+    await user.save();
+
+    res.json({
+      success: true,
+      data: user.subscription,
+    });
+  } catch (error) {
+    console.error("Error updating subscription:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Reactivate canceled subscription
+router.post("/reactivate-subscription", protect, async (req, res) => {
+  try {
+    const { planType } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (!user.subscription.stripeSubscriptionId) {
+      return res.status(400).json({
+        success: false,
+        error: "No subscription found to reactivate",
+      });
+    }
+
+    // If subscription was canceled but still active (cancelAtPeriodEnd)
+    if (user.subscription.cancelAtPeriodEnd) {
+      // First get the current subscription
+      const currentSubscription = await stripe.subscriptions.retrieve(
+        user.subscription.stripeSubscriptionId
+      );
+
+      // Then update it
+      const subscription = await stripe.subscriptions.update(
+        user.subscription.stripeSubscriptionId,
+        {
+          cancel_at_period_end: false,
+          proration_behavior: "always_invoice",
+          items: [
+            {
+              id: currentSubscription.items.data[0].id,
+              price:
+                planType === "yearly"
+                  ? process.env.STRIPE_YEARLY_PRICE_ID
+                  : process.env.STRIPE_MONTHLY_PRICE_ID,
+            },
+          ],
+        }
+      );
+
+      user.subscription.cancelAtPeriodEnd = false;
+      user.subscription.type = planType;
+      await user.save();
+
+      return res.json({
+        success: true,
+        message: "Subscription reactivated successfully",
+        data: user.subscription,
+      });
+    }
+    // If subscription has already ended, create new checkout session
+    else {
+      const session = await stripe.checkout.sessions.create({
+        customer: user.subscription.stripeCustomerId,
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price:
+              planType === "yearly"
+                ? process.env.STRIPE_YEARLY_PRICE_ID
+                : process.env.STRIPE_MONTHLY_PRICE_ID,
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          userId: user._id.toString(),
+          planType,
+          isReactivation: "true",
+        },
+        success_url: `${process.env.FRONTEND_URL}/dashboard?success=true`,
+        cancel_url: `${process.env.FRONTEND_URL}/settings?canceled=true`,
+      });
+
+      return res.json({
+        success: true,
+        url: session.url,
+      });
+    }
+  } catch (error) {
+    console.error("Error reactivating subscription:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// In your auth routes file
+router.get("/me/special-access", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("specialAccess");
+
+    // Check if user has valid special access
+    const hasSpecialAccess =
+      user.specialAccess &&
+      user.specialAccess.hasAccess &&
+      (!user.specialAccess.expiresAt ||
+        new Date() < new Date(user.specialAccess.expiresAt));
+
+    res.json({
+      success: true,
+      hasSpecialAccess,
+    });
+  } catch (error) {
+    console.error("Error checking special access:", error);
+    res.status(500).json({
+      success: false,
+      error: "Server error",
+    });
   }
 });
 
