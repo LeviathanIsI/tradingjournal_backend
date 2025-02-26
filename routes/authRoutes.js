@@ -1008,6 +1008,7 @@ router.get(
 router.get(
   "/google/callback",
   async (req, res, next) => {
+    console.log("🔍 OAuth Redirect URI received:", req.originalUrl);
     next();
   },
   passport.authenticate("google", {
@@ -1026,6 +1027,8 @@ router.get(
         process.env.JWT_SECRET,
         { expiresIn: "2h" }
       );
+
+      console.log("✅ Redirecting to frontend with token:", token);
 
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
       res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
