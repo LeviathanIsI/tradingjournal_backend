@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { protect } = require("../middleware/authMiddleware");
 const Trade = require("../models/Trade");
+const OptionTrade = require("../models/OptionTrade");
 
 // Helper function to calculate P/L for a trade
 const calculateProfitLoss = (trade) => {
@@ -68,78 +69,76 @@ router.get("/", protect, async (req, res) => {
 // GET trade statistics
 router.get("/stats", protect, async (req, res) => {
   try {
-    const trades = await Trade.find({ user: req.user._id });
+    // Get all trades (both stock and options)
+    const stockTrades = await Trade.find({
+      user: req.user._id,
+      status: "CLOSED",
+    });
 
-    const stats = trades.reduce(
-      (acc, trade) => {
-        const pl = calculateProfitLoss(trade.toObject());
+    const optionTrades = await OptionTrade.find({
+      user: req.user._id,
+      status: "CLOSED",
+    });
 
-        if (pl.status === "CLOSED") {
-          acc.totalTrades++;
-          acc.totalProfit += pl.realized;
+    // Count and sum up all trades
+    let totalTrades = stockTrades.length + optionTrades.length;
+    let profitableTrades = 0;
+    let totalProfit = 0;
+    let totalWinAmount = 0;
+    let totalLossAmount = 0;
 
-          if (pl.realized > 0) {
-            acc.profitableTrades++;
-            acc.totalWinAmount += pl.realized;
-            acc.maxProfit = Math.max(acc.maxProfit, pl.realized);
-          } else {
-            acc.totalLossAmount += Math.abs(pl.realized);
-            acc.maxLoss = Math.min(acc.maxLoss, pl.realized);
-          }
-        }
+    // Process stock trades
+    stockTrades.forEach((trade) => {
+      const pl = trade.profitLoss.realized;
+      totalProfit += pl;
 
-        return acc;
-      },
-      {
-        totalTrades: 0,
-        profitableTrades: 0,
-        totalProfit: 0,
-        totalWinAmount: 0,
-        totalLossAmount: 0,
-        maxProfit: 0,
-        maxLoss: 0,
+      if (pl > 0) {
+        profitableTrades++;
+        totalWinAmount += pl;
+      } else if (pl < 0) {
+        totalLossAmount += Math.abs(pl);
       }
-    );
+    });
 
-    // Calculate derived statistics
+    // Process option trades
+    optionTrades.forEach((trade) => {
+      const pl = trade.profitLoss.realized;
+      totalProfit += pl;
+
+      if (pl > 0) {
+        profitableTrades++;
+        totalWinAmount += pl;
+      } else if (pl < 0) {
+        totalLossAmount += Math.abs(pl);
+      }
+    });
+
+    // Calculate losing trades
+    const losingTrades = totalTrades - profitableTrades;
+
+    // Calculate win rate
     const winRate =
-      stats.totalTrades > 0
-        ? Number(
-            ((stats.profitableTrades / stats.totalTrades) * 100).toFixed(2)
-          )
-        : 0;
+      totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
 
-    const avgWinningTrade =
-      stats.profitableTrades > 0
-        ? Number((stats.totalWinAmount / stats.profitableTrades).toFixed(2))
-        : 0;
-
-    const avgLosingTrade =
-      stats.totalTrades - stats.profitableTrades > 0
-        ? Number(
-            (
-              stats.totalLossAmount /
-              (stats.totalTrades - stats.profitableTrades)
-            ).toFixed(2)
-          )
-        : 0;
-
-    const profitFactor =
-      stats.totalLossAmount > 0
-        ? Number((stats.totalWinAmount / stats.totalLossAmount).toFixed(2))
-        : 0;
+    // Calculate win/loss ratio
+    const winLossRatio =
+      losingTrades > 0 ? profitableTrades / losingTrades : profitableTrades;
 
     res.json({
       success: true,
       data: {
-        ...stats,
+        totalTrades,
+        profitableTrades,
+        losingTrades,
+        totalProfit,
+        totalWinAmount,
+        totalLossAmount,
         winRate,
-        avgWinningTrade,
-        avgLosingTrade,
-        profitFactor,
+        winLossRatio,
       },
     });
   } catch (error) {
+    console.error("Stats error:", error);
     res.status(400).json({
       success: false,
       error: error.message,

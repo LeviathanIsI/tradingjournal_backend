@@ -109,41 +109,52 @@ router.delete("/:id", protect, async (req, res) => {
 // GET option trade statistics
 router.get("/stats", protect, async (req, res) => {
   try {
-    const stats = await OptionTrade.aggregate([
-      { $match: { user: req.user._id } },
-      {
-        $group: {
-          _id: null,
-          totalTrades: { $sum: 1 },
-          profitableTrades: {
-            $sum: { $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0] },
-          },
-          totalProfit: { $sum: "$profitLoss.realized" },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          totalTrades: 1,
-          profitableTrades: 1,
-          totalProfit: 1,
-          winRate: {
-            $multiply: [
-              { $divide: ["$profitableTrades", "$totalTrades"] },
-              100,
-            ],
-          },
-        },
-      },
-    ]);
+    const trades = await OptionTrade.find({
+      user: req.user._id,
+      status: "CLOSED",
+    });
+
+    let totalTrades = trades.length;
+    let profitableTrades = 0;
+    let totalProfit = 0;
+    let totalWinAmount = 0;
+    let totalLossAmount = 0;
+
+    // Process trades
+    trades.forEach((trade) => {
+      const pl = trade.profitLoss.realized;
+      totalProfit += pl;
+
+      if (pl > 0) {
+        profitableTrades++;
+        totalWinAmount += pl;
+      } else if (pl < 0) {
+        totalLossAmount += Math.abs(pl);
+      }
+    });
+
+    // Calculate losing trades
+    const losingTrades = totalTrades - profitableTrades;
+
+    // Calculate win rate
+    const winRate =
+      totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
+
+    // Calculate win/loss ratio
+    const winLossRatio =
+      losingTrades > 0 ? profitableTrades / losingTrades : profitableTrades;
 
     res.json({
       success: true,
-      data: stats[0] || {
-        totalTrades: 0,
-        profitableTrades: 0,
-        totalProfit: 0,
-        winRate: 0,
+      data: {
+        totalTrades,
+        profitableTrades,
+        losingTrades,
+        totalProfit,
+        totalWinAmount,
+        totalLossAmount,
+        winRate,
+        winLossRatio,
       },
     });
   } catch (error) {
