@@ -13,7 +13,6 @@ const stripe = require("../config/stripe");
 const sendEmail = async (to, subject, text) => {
   // Implement your email sending logic here
   // You can use nodemailer or another email service
-  console.log(`Would send email to ${to}: ${subject} - ${text}`);
 };
 
 // Generate JWT
@@ -130,10 +129,6 @@ router.post("/webhook", async (req, res) => {
           }
 
           await user.save();
-
-          console.log(
-            `Payment failed for user ${user._id}. Attempt #${user.subscription.failedPaymentAttempts}`
-          );
         }
         break;
       }
@@ -143,6 +138,46 @@ router.post("/webhook", async (req, res) => {
   } catch (error) {
     console.error("Webhook error:", error.message);
     return res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.get("/ai-limits", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    // Check if reset date has passed
+    const now = new Date();
+    if (now >= user.aiRequestLimits.nextResetDate) {
+      // Reset counter and update next reset date
+      const nextMonday = new Date(now);
+      const daysUntilMonday = 1 - now.getDay();
+
+      if (daysUntilMonday <= 0) {
+        nextMonday.setDate(now.getDate() + 7 + daysUntilMonday);
+      } else {
+        nextMonday.setDate(now.getDate() + daysUntilMonday);
+      }
+
+      nextMonday.setHours(0, 1, 0, 0); // 12:01 AM
+
+      user.aiRequestLimits.nextResetDate = nextMonday;
+      user.aiRequestLimits.remainingRequests = user.aiRequestLimits.weeklyLimit;
+
+      await user.save();
+    }
+
+    res.json({
+      success: true,
+      data: {
+        aiRequestLimits: user.aiRequestLimits,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching AI limits:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch AI limits",
+    });
   }
 });
 
@@ -248,6 +283,7 @@ router.post("/register", async (req, res) => {
         _id: user._id,
         username: user.username,
         email: user.email,
+        aiRequestLimits: user.aiRequestLimits,
         token: generateToken(user._id),
       },
     });
@@ -262,13 +298,14 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body;
+
     const user = await User.findOne({ email }).select("+password");
 
     if (!user || !(await user.matchPassword(password))) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid credentials",
-      });
+      console.warn("⚠️ [Login] Invalid Credentials!");
+      return res
+        .status(401)
+        .json({ success: false, error: "Invalid credentials" });
     }
 
     res.json({
@@ -280,14 +317,13 @@ router.post("/login", async (req, res) => {
         preferences: user.preferences,
         googleAuth: user.googleAuth,
         specialAccess: user.specialAccess,
+        aiRequestLimits: user.aiRequestLimits,
         token: generateToken(user._id, user.googleAuth, rememberMe),
       },
     });
   } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error.message,
-    });
+    console.error("❌ [Login] ERROR:", error);
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 
@@ -722,11 +758,13 @@ router.put("/profile/password", protect, async (req, res) => {
 router.get("/validate", protect, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select("-password");
+
     res.json({
       success: true,
       data: user,
     });
   } catch (error) {
+    console.error("❌ Validate Error:", error);
     res.status(401).json({
       success: false,
       error: "Invalid token",
@@ -739,12 +777,16 @@ router.get("/network/:userId", protect, async (req, res) => {
   try {
     const user = await User.findById(req.params.userId);
 
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
     // Get both followers and following
     const networkUsers = await User.find({
-      $or: [
-        { _id: { $in: user.followers } }, // Users who follow this user
-        { _id: { $in: user.following } }, // Users this user follows
-      ],
+      $or: [{ _id: { $in: user.followers } }, { _id: { $in: user.following } }],
     }).select("-password -email");
 
     // Get stats for each user in the network
@@ -784,6 +826,7 @@ router.get("/network/:userId", protect, async (req, res) => {
       data: networkData,
     });
   } catch (error) {
+    console.error("Network data fetch error:", error);
     res.status(400).json({
       success: false,
       error: error.message,
@@ -1008,7 +1051,6 @@ router.get(
 router.get(
   "/google/callback",
   async (req, res, next) => {
-    console.log("🔍 OAuth Redirect URI received:", req.originalUrl);
     next();
   },
   passport.authenticate("google", {
@@ -1027,8 +1069,6 @@ router.get(
         process.env.JWT_SECRET,
         { expiresIn: "2h" }
       );
-
-      console.log("✅ Redirecting to frontend with token:", token);
 
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
       res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);

@@ -173,11 +173,88 @@ const userSchema = new mongoose.Schema(
       expiresAt: { type: Date, default: null },
       reason: { type: String, default: "other" },
     },
+    accountDeletion: {
+      requestedAt: { type: Date, default: null },
+      billingAcknowledged: { type: Boolean, default: false },
+      signature: { type: String, default: null },
+      confirmationCode: { type: String, default: null },
+      reason: { type: String, default: null },
+      scheduledFor: { type: Date, default: null },
+      completed: { type: Boolean, default: false },
+    },
+    aiRequestLimits: {
+      weeklyLimit: { type: Number, default: 5 }, // Default limit of 5 requests per week
+      remainingRequests: { type: Number, default: 5 }, // Requests remaining this week
+      nextResetDate: {
+        type: Date,
+        default: function () {
+          // Set to next Monday at 12:01 AM
+          const now = new Date();
+          const daysUntilMonday = 1 - now.getDay();
+          const nextMonday = new Date(now);
+
+          if (daysUntilMonday <= 0) {
+            // If today is Monday or later in the week, go to next Monday
+            nextMonday.setDate(now.getDate() + 7 + daysUntilMonday);
+          } else {
+            // If today is before Monday, go to this coming Monday
+            nextMonday.setDate(now.getDate() + daysUntilMonday);
+          }
+
+          nextMonday.setHours(0, 1, 0, 0); // 12:01 AM
+          return nextMonday;
+        },
+      },
+      totalRequestsUsed: { type: Number, default: 0 }, // Track total usage for analytics
+    },
   },
   {
     timestamps: true,
   }
 );
+
+// Method to decrement AI request count
+userSchema.methods.useAIRequest = async function () {
+  // Check if user has requests remaining
+  if (this.aiRequestLimits.remainingRequests <= 0) {
+    return {
+      success: false,
+      message: "Weekly AI request limit reached",
+    };
+  }
+
+  // Check if reset date has passed
+  const now = new Date();
+  if (now >= this.aiRequestLimits.nextResetDate) {
+    // Reset counter and update next reset date
+    const nextMonday = new Date(now);
+    const daysUntilMonday = 1 - now.getDay();
+
+    if (daysUntilMonday <= 0) {
+      nextMonday.setDate(now.getDate() + 7 + daysUntilMonday);
+    } else {
+      nextMonday.setDate(now.getDate() + daysUntilMonday);
+    }
+
+    nextMonday.setHours(0, 1, 0, 0); // 12:01 AM
+
+    this.aiRequestLimits.nextResetDate = nextMonday;
+    this.aiRequestLimits.remainingRequests = this.aiRequestLimits.weeklyLimit;
+  }
+
+  // Decrement counter and increment total used
+  this.aiRequestLimits.remainingRequests--;
+  this.aiRequestLimits.totalRequestsUsed++;
+
+  // Save the updated user
+  await this.save();
+
+  return {
+    success: true,
+    remainingRequests: this.aiRequestLimits.remainingRequests,
+    nextResetDate: this.aiRequestLimits.nextResetDate,
+  };
+};
 
 // Encrypt password before saving
 userSchema.pre("save", async function (next) {
@@ -224,7 +301,10 @@ userSchema.pre("save", async function (next) {
 });
 
 // Add method to verify security answers
-userSchema.methods.verifySecurityAnswer = async function (questionKey, answer) {
+userSchema.methods.veriffySecurityAnswer = async function (
+  questionKey,
+  answer
+) {
   if (!this.securityQuestions || !this.securityQuestions[questionKey]) {
     throw new Error(`Security question ${questionKey} not found.`);
   }

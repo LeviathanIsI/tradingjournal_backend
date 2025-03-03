@@ -9,12 +9,8 @@ const tradeRoutes = require("./routes/tradeRoutes");
 const optionTradeRoutes = require("./routes/optionTradeRoutes");
 const tradePlanRoutes = require("./routes/tradePlanRoutes");
 const tradeReviewRoutes = require("./routes/tradeReviewRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 const { scheduleFeaturedReviews } = require("./schedulers/index");
-
-console.log("Environment Variables:", {
-  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ? "Exists" : "Not found",
-  NODE_ENV: process.env.NODE_ENV,
-});
 connectDB();
 
 const app = express();
@@ -59,6 +55,7 @@ app.use("/api/trades", tradeRoutes);
 app.use("/api/option-trades", optionTradeRoutes);
 app.use("/api/trade-plans", tradePlanRoutes);
 app.use("/api/trade-reviews", tradeReviewRoutes);
+app.use("/api/ai", aiRoutes);
 app.use(passport.initialize());
 
 // Initialize schedulers
@@ -78,6 +75,4 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log("Schedulers initialized...");
 });
