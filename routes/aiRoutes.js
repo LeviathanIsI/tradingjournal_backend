@@ -379,207 +379,214 @@ router.post(
 );
 
 // AI-Powered Pattern Analysis Route
-router.get("/pattern-analysis", protect, async (req, res) => {
-  try {
-    // Get all completed trades for the user
-    const stockTrades = await Trade.find({
-      user: req.user._id,
-      status: "CLOSED",
-    });
-
-    const optionTrades = await OptionTrade.find({
-      user: req.user._id,
-      status: "CLOSED",
-    });
-
-    const allTrades = [...stockTrades, ...optionTrades];
-
-    // If no trades, return early
-    if (allTrades.length === 0) {
-      return res.json({
-        success: true,
-        analysis: "Not enough trading history to identify patterns.",
+router.post(
+  "/pattern-analysis",
+  protect,
+  checkAndDecrementAICredits,
+  async (req, res) => {
+    try {
+      // Get all completed trades for the user
+      const stockTrades = await Trade.find({
+        user: req.user._id,
+        status: "CLOSED",
       });
-    }
 
-    // Calculate basic statistics by category
-    const tradesBySymbol = {};
-    const tradesBySetup = {};
-    const tradesByTimeOfDay = {
-      morning: { count: 0, wins: 0, profit: 0 },
-      midday: { count: 0, wins: 0, profit: 0 },
-      afternoon: { count: 0, wins: 0, profit: 0 },
-    };
-    const tradesByDayOfWeek = {
-      0: { count: 0, wins: 0, profit: 0 }, // Sunday
-      1: { count: 0, wins: 0, profit: 0 }, // Monday
-      2: { count: 0, wins: 0, profit: 0 }, // Tuesday
-      3: { count: 0, wins: 0, profit: 0 }, // Wednesday
-      4: { count: 0, wins: 0, profit: 0 }, // Thursday
-      5: { count: 0, wins: 0, profit: 0 }, // Friday
-      6: { count: 0, wins: 0, profit: 0 }, // Saturday
-    };
-    const tradesByHoldingTime = {
-      shortTerm: { count: 0, wins: 0, profit: 0 },
-      mediumTerm: { count: 0, wins: 0, profit: 0 },
-      longTerm: { count: 0, wins: 0, profit: 0 },
-    };
+      const optionTrades = await OptionTrade.find({
+        user: req.user._id,
+        status: "CLOSED",
+      });
 
-    // Analyze each trade
-    allTrades.forEach((trade) => {
-      // Only process trades with complete P&L data
-      if (!trade.profitLoss || trade.profitLoss.realized === undefined) return;
+      const allTrades = [...stockTrades, ...optionTrades];
 
-      const profit = trade.profitLoss.realized;
-      const isWin = profit > 0;
-
-      // Analyze by symbol
-      const symbol = trade.symbol || trade.ticker;
-      if (symbol) {
-        if (!tradesBySymbol[symbol]) {
-          tradesBySymbol[symbol] = { count: 0, wins: 0, profit: 0 };
-        }
-        tradesBySymbol[symbol].count++;
-        if (isWin) tradesBySymbol[symbol].wins++;
-        tradesBySymbol[symbol].profit += profit;
+      // If no trades, return early
+      if (allTrades.length === 0) {
+        return res.json({
+          success: true,
+          analysis: "Not enough trading history to identify patterns.",
+        });
       }
 
-      // Analyze by setup
-      const setup = trade.setup || "Unknown";
-      if (!tradesBySetup[setup]) {
-        tradesBySetup[setup] = { count: 0, wins: 0, profit: 0 };
-      }
-      tradesBySetup[setup].count++;
-      if (isWin) tradesBySetup[setup].wins++;
-      tradesBySetup[setup].profit += profit;
+      // Calculate basic statistics by category
+      const tradesBySymbol = {};
+      const tradesBySetup = {};
+      const tradesByTimeOfDay = {
+        morning: { count: 0, wins: 0, profit: 0 },
+        midday: { count: 0, wins: 0, profit: 0 },
+        afternoon: { count: 0, wins: 0, profit: 0 },
+      };
+      const tradesByDayOfWeek = {
+        0: { count: 0, wins: 0, profit: 0 }, // Sunday
+        1: { count: 0, wins: 0, profit: 0 }, // Monday
+        2: { count: 0, wins: 0, profit: 0 }, // Tuesday
+        3: { count: 0, wins: 0, profit: 0 }, // Wednesday
+        4: { count: 0, wins: 0, profit: 0 }, // Thursday
+        5: { count: 0, wins: 0, profit: 0 }, // Friday
+        6: { count: 0, wins: 0, profit: 0 }, // Saturday
+      };
+      const tradesByHoldingTime = {
+        shortTerm: { count: 0, wins: 0, profit: 0 },
+        mediumTerm: { count: 0, wins: 0, profit: 0 },
+        longTerm: { count: 0, wins: 0, profit: 0 },
+      };
 
-      // Analyze by time of day
-      if (trade.entryDate) {
-        const entryDate = new Date(trade.entryDate);
-        const hour = entryDate.getHours();
+      // Analyze each trade
+      allTrades.forEach((trade) => {
+        // Only process trades with complete P&L data
+        if (!trade.profitLoss || trade.profitLoss.realized === undefined)
+          return;
 
-        if (hour < 12) {
-          tradesByTimeOfDay.morning.count++;
-          if (isWin) tradesByTimeOfDay.morning.wins++;
-          tradesByTimeOfDay.morning.profit += profit;
-        } else if (hour < 15) {
-          tradesByTimeOfDay.midday.count++;
-          if (isWin) tradesByTimeOfDay.midday.wins++;
-          tradesByTimeOfDay.midday.profit += profit;
-        } else {
-          tradesByTimeOfDay.afternoon.count++;
-          if (isWin) tradesByTimeOfDay.afternoon.wins++;
-          tradesByTimeOfDay.afternoon.profit += profit;
+        const profit = trade.profitLoss.realized;
+        const isWin = profit > 0;
+
+        // Analyze by symbol
+        const symbol = trade.symbol || trade.ticker;
+        if (symbol) {
+          if (!tradesBySymbol[symbol]) {
+            tradesBySymbol[symbol] = { count: 0, wins: 0, profit: 0 };
+          }
+          tradesBySymbol[symbol].count++;
+          if (isWin) tradesBySymbol[symbol].wins++;
+          tradesBySymbol[symbol].profit += profit;
         }
 
-        // Analyze by day of week
-        const dayOfWeek = entryDate.getDay();
-        tradesByDayOfWeek[dayOfWeek].count++;
-        if (isWin) tradesByDayOfWeek[dayOfWeek].wins++;
-        tradesByDayOfWeek[dayOfWeek].profit += profit;
-      }
-
-      // Analyze by holding time
-      if (trade.entryDate && trade.exitDate) {
-        const entryTime = new Date(trade.entryDate).getTime();
-        const exitTime = new Date(trade.exitDate).getTime();
-        const holdingTimeMinutes = (exitTime - entryTime) / (1000 * 60);
-
-        if (holdingTimeMinutes < 30) {
-          tradesByHoldingTime.shortTerm.count++;
-          if (isWin) tradesByHoldingTime.shortTerm.wins++;
-          tradesByHoldingTime.shortTerm.profit += profit;
-        } else if (holdingTimeMinutes < 120) {
-          tradesByHoldingTime.mediumTerm.count++;
-          if (isWin) tradesByHoldingTime.mediumTerm.wins++;
-          tradesByHoldingTime.mediumTerm.profit += profit;
-        } else {
-          tradesByHoldingTime.longTerm.count++;
-          if (isWin) tradesByHoldingTime.longTerm.wins++;
-          tradesByHoldingTime.longTerm.profit += profit;
+        // Analyze by setup
+        const setup = trade.setup || "Unknown";
+        if (!tradesBySetup[setup]) {
+          tradesBySetup[setup] = { count: 0, wins: 0, profit: 0 };
         }
-      }
-    });
+        tradesBySetup[setup].count++;
+        if (isWin) tradesBySetup[setup].wins++;
+        tradesBySetup[setup].profit += profit;
 
-    // Format the data for OpenAI
+        // Analyze by time of day
+        if (trade.entryDate) {
+          const entryDate = new Date(trade.entryDate);
+          const hour = entryDate.getHours();
 
-    // Top symbols by win rate (min 3 trades)
-    const symbolStats = Object.entries(tradesBySymbol)
-      .filter(([_, data]) => data.count >= 3)
-      .map(([symbol, data]) => ({
-        symbol,
-        winRate: ((data.wins / data.count) * 100).toFixed(1),
-        profit: data.profit.toFixed(2),
-        count: data.count,
-      }))
-      .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+          if (hour < 12) {
+            tradesByTimeOfDay.morning.count++;
+            if (isWin) tradesByTimeOfDay.morning.wins++;
+            tradesByTimeOfDay.morning.profit += profit;
+          } else if (hour < 15) {
+            tradesByTimeOfDay.midday.count++;
+            if (isWin) tradesByTimeOfDay.midday.wins++;
+            tradesByTimeOfDay.midday.profit += profit;
+          } else {
+            tradesByTimeOfDay.afternoon.count++;
+            if (isWin) tradesByTimeOfDay.afternoon.wins++;
+            tradesByTimeOfDay.afternoon.profit += profit;
+          }
 
-    // Top setups by win rate (min 2 trades)
-    const setupStats = Object.entries(tradesBySetup)
-      .filter(([_, data]) => data.count >= 2)
-      .map(([setup, data]) => ({
-        setup,
-        winRate: ((data.wins / data.count) * 100).toFixed(1),
-        profit: data.profit.toFixed(2),
-        count: data.count,
-      }))
-      .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+          // Analyze by day of week
+          const dayOfWeek = entryDate.getDay();
+          tradesByDayOfWeek[dayOfWeek].count++;
+          if (isWin) tradesByDayOfWeek[dayOfWeek].wins++;
+          tradesByDayOfWeek[dayOfWeek].profit += profit;
+        }
 
-    // Time of day stats
-    const timeOfDayStats = Object.entries(tradesByTimeOfDay)
-      .map(([timeOfDay, data]) => ({
-        timeOfDay,
-        winRate:
-          data.count > 0 ? ((data.wins / data.count) * 100).toFixed(1) : "0.0",
-        profit: data.profit.toFixed(2),
-        count: data.count,
-      }))
-      .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+        // Analyze by holding time
+        if (trade.entryDate && trade.exitDate) {
+          const entryTime = new Date(trade.entryDate).getTime();
+          const exitTime = new Date(trade.exitDate).getTime();
+          const holdingTimeMinutes = (exitTime - entryTime) / (1000 * 60);
 
-    // Day of week stats
-    const daysOfWeek = [
-      "Sunday",
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
-    ];
-    const dayOfWeekStats = Object.entries(tradesByDayOfWeek)
-      .map(([day, data]) => ({
-        day: daysOfWeek[parseInt(day)],
-        winRate:
-          data.count > 0 ? ((data.wins / data.count) * 100).toFixed(1) : "0.0",
-        profit: data.profit.toFixed(2),
-        count: data.count,
-      }))
-      .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+          if (holdingTimeMinutes < 30) {
+            tradesByHoldingTime.shortTerm.count++;
+            if (isWin) tradesByHoldingTime.shortTerm.wins++;
+            tradesByHoldingTime.shortTerm.profit += profit;
+          } else if (holdingTimeMinutes < 120) {
+            tradesByHoldingTime.mediumTerm.count++;
+            if (isWin) tradesByHoldingTime.mediumTerm.wins++;
+            tradesByHoldingTime.mediumTerm.profit += profit;
+          } else {
+            tradesByHoldingTime.longTerm.count++;
+            if (isWin) tradesByHoldingTime.longTerm.wins++;
+            tradesByHoldingTime.longTerm.profit += profit;
+          }
+        }
+      });
 
-    // Holding time stats
-    const holdingTimeStats = Object.entries(tradesByHoldingTime)
-      .map(([duration, data]) => {
-        let durationLabel = duration;
-        if (duration === "shortTerm") durationLabel = "< 30 minutes";
-        if (duration === "mediumTerm") durationLabel = "30 - 120 minutes";
-        if (duration === "longTerm") durationLabel = "> 120 minutes";
+      // Top symbols by win rate (min 3 trades)
+      const symbolStats = Object.entries(tradesBySymbol)
+        .filter(([_, data]) => data.count >= 3)
+        .map(([symbol, data]) => ({
+          symbol,
+          winRate: ((data.wins / data.count) * 100).toFixed(1),
+          profit: data.profit.toFixed(2),
+          count: data.count,
+        }))
+        .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
 
-        return {
-          duration: durationLabel,
+      // Top setups by win rate (min 2 trades)
+      const setupStats = Object.entries(tradesBySetup)
+        .filter(([_, data]) => data.count >= 2)
+        .map(([setup, data]) => ({
+          setup,
+          winRate: ((data.wins / data.count) * 100).toFixed(1),
+          profit: data.profit.toFixed(2),
+          count: data.count,
+        }))
+        .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+
+      // Time of day stats
+      const timeOfDayStats = Object.entries(tradesByTimeOfDay)
+        .map(([timeOfDay, data]) => ({
+          timeOfDay,
           winRate:
             data.count > 0
               ? ((data.wins / data.count) * 100).toFixed(1)
               : "0.0",
           profit: data.profit.toFixed(2),
           count: data.count,
-        };
-      })
-      .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+        }))
+        .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
 
-    const username = req.user.username || "Trader";
+      // Day of week stats
+      const daysOfWeek = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
+      const dayOfWeekStats = Object.entries(tradesByDayOfWeek)
+        .map(([day, data]) => ({
+          day: daysOfWeek[parseInt(day)],
+          winRate:
+            data.count > 0
+              ? ((data.wins / data.count) * 100).toFixed(1)
+              : "0.0",
+          profit: data.profit.toFixed(2),
+          count: data.count,
+        }))
+        .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
 
-    // Build prompt for OpenAI
-    const prompt = `
+      // Holding time stats
+      const holdingTimeStats = Object.entries(tradesByHoldingTime)
+        .map(([duration, data]) => {
+          let durationLabel = duration;
+          if (duration === "shortTerm") durationLabel = "< 30 minutes";
+          if (duration === "mediumTerm") durationLabel = "30 - 120 minutes";
+          if (duration === "longTerm") durationLabel = "> 120 minutes";
+
+          return {
+            duration: durationLabel,
+            winRate:
+              data.count > 0
+                ? ((data.wins / data.count) * 100).toFixed(1)
+                : "0.0",
+            profit: data.profit.toFixed(2),
+            count: data.count,
+          };
+        })
+        .sort((a, b) => parseFloat(b.winRate) - parseFloat(a.winRate));
+
+      const username = req.user.username || "Trader";
+
+      // Build prompt for OpenAI
+      const prompt = `
    Analyze ${username}'s trading patterns based on their trading history:
     
     Total Trades Analyzed: ${allTrades.length}
@@ -637,43 +644,44 @@ router.get("/pattern-analysis", protect, async (req, res) => {
     Format your response using markdown with clear section headers and bullet points for readability. Address ${username} directly in your analysis and recommendations.
 `;
 
-    // Send request to OpenAI
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 1000,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
+      // Send request to OpenAI
+      const response = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model: "gpt-4o",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 1000,
         },
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
-    res.json({
-      success: true,
-      analysis: response.data.choices[0].message.content,
-      data: {
-        symbolStats,
-        setupStats,
-        timeOfDayStats,
-        dayOfWeekStats,
-        holdingTimeStats,
-        estimatedSeconds: 25,
-        aiLimits: req.aiLimits,
-      },
-    });
-  } catch (error) {
-    console.error("AI Pattern Analysis Error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to analyze trading patterns.",
-    });
+      res.json({
+        success: true,
+        analysis: response.data.choices[0].message.content,
+        data: {
+          symbolStats,
+          setupStats,
+          timeOfDayStats,
+          dayOfWeekStats,
+          holdingTimeStats,
+          estimatedSeconds: 25,
+          aiLimits: req.aiLimits,
+        },
+      });
+    } catch (error) {
+      console.error("AI Pattern Analysis Error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to analyze trading patterns.",
+      });
+    }
   }
-});
+);
 
 // Add this route to your file, between the other routes
 router.post(
