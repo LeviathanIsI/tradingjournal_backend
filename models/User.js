@@ -160,7 +160,7 @@ const userSchema = new mongoose.Schema(
       cancelAtPeriodEnd: { type: Boolean, default: false },
       paymentStatus: {
         type: String,
-        enum: ["active", "failed", "past_due"],
+        enum: ["active", "failed", "past_due", "succeeded"],
         default: "active",
       },
       latestInvoiceId: { type: String },
