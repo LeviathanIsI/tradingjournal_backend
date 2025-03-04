@@ -1217,47 +1217,155 @@ router.post("/create-subscription", protect, async (req, res) => {
       });
     }
 
-    // Create or get Stripe customer
-    let customerId = user.subscription.stripeCustomerId;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
+    let customerId;
+
+    // Handle test/live mode mismatch - always create a new customer if we're in live mode
+    // and have a customer ID that starts with 'cus_'
+    try {
+      if (
+        user.subscription.stripeCustomerId &&
+        user.subscription.stripeCustomerId.startsWith("cus_")
+      ) {
+        // First try to retrieve the customer to see if it exists in current mode
+        try {
+          await stripe.customers.retrieve(user.subscription.stripeCustomerId);
+          customerId = user.subscription.stripeCustomerId;
+        } catch (retrieveError) {
+          // If retrieval fails, create a new customer
+          console.log(`Customer retrieval error: ${retrieveError.message}`);
+          const customer = await stripe.customers.create({
+            email: user.email,
+            metadata: {
+              userId: user._id.toString(),
+            },
+          });
+
+          customerId = customer.id;
+
+          // Update user with new customer ID
+          user.subscription.stripeCustomerId = customerId;
+          await user.save();
+        }
+      } else if (!user.subscription.stripeCustomerId) {
+        // No customer ID exists, create a new one
+        const customer = await stripe.customers.create({
+          email: user.email,
+          metadata: {
+            userId: user._id.toString(),
+          },
+        });
+
+        customerId = customer.id;
+
+        // Update user with new customer ID
+        user.subscription.stripeCustomerId = customerId;
+        await user.save();
+      } else {
+        // Use existing customer ID
+        customerId = user.subscription.stripeCustomerId;
+      }
+
+      // Create checkout session
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price:
+              planType === "yearly"
+                ? process.env.STRIPE_YEARLY_PRICE_ID
+                : process.env.STRIPE_MONTHLY_PRICE_ID,
+            quantity: 1,
+          },
+        ],
         metadata: {
           userId: user._id.toString(),
+          planType,
+          isReactivation: isReactivation ? "true" : "false",
         },
+        success_url: `${process.env.FRONTEND_URL}/dashboard?success=true`,
+        cancel_url: `${process.env.FRONTEND_URL}/settings?canceled=true`,
       });
-      customerId = customer.id;
-      user.subscription.stripeCustomerId = customerId;
-      await user.save();
+
+      return res.json({
+        success: true,
+        url: session.url,
+      });
+    } catch (stripeError) {
+      console.error("Stripe operation error:", stripeError);
+
+      // If we specifically get a test/live mode mismatch error about customer ID
+      if (
+        stripeError.message &&
+        stripeError.message.includes("similar object exists in test mode") &&
+        stripeError.message.includes("customer")
+      ) {
+        // Clear the problematic customer ID and create a fresh one
+        console.log(
+          "Detected test/live mode mismatch with customer. Creating new customer."
+        );
+
+        try {
+          const customer = await stripe.customers.create({
+            email: user.email,
+            metadata: {
+              userId: user._id.toString(),
+            },
+          });
+
+          customerId = customer.id;
+
+          // Update user with new customer ID
+          user.subscription.stripeCustomerId = customerId;
+          await user.save();
+
+          // Try creating the session again with the new customer ID
+          const session = await stripe.checkout.sessions.create({
+            customer: customerId,
+            mode: "subscription",
+            payment_method_types: ["card"],
+            line_items: [
+              {
+                price:
+                  planType === "yearly"
+                    ? process.env.STRIPE_YEARLY_PRICE_ID
+                    : process.env.STRIPE_MONTHLY_PRICE_ID,
+                quantity: 1,
+              },
+            ],
+            metadata: {
+              userId: user._id.toString(),
+              planType,
+              isReactivation: isReactivation ? "true" : "false",
+            },
+            success_url: `${process.env.FRONTEND_URL}/dashboard?success=true`,
+            cancel_url: `${process.env.FRONTEND_URL}/settings?canceled=true`,
+          });
+
+          return res.json({
+            success: true,
+            url: session.url,
+          });
+        } catch (finalError) {
+          console.error(
+            "Failed to recover from test/live mode mismatch:",
+            finalError
+          );
+          return res.status(500).json({
+            success: false,
+            error:
+              "Failed to process subscription after environment mismatch recovery attempt.",
+          });
+        }
+      }
+
+      // For any other errors, return them to the client
+      return res.status(500).json({
+        success: false,
+        error: stripeError.message,
+      });
     }
-
-    // Create checkout session
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      mode: "subscription",
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price:
-            planType === "yearly"
-              ? process.env.STRIPE_YEARLY_PRICE_ID
-              : process.env.STRIPE_MONTHLY_PRICE_ID,
-          quantity: 1,
-        },
-      ],
-      metadata: {
-        userId: user._id.toString(),
-        planType,
-        isReactivation: isReactivation ? "true" : "false",
-      },
-      success_url: `${process.env.FRONTEND_URL}/dashboard?success=true`,
-      cancel_url: `${process.env.FRONTEND_URL}/settings?canceled=true`,
-    });
-
-    res.json({
-      success: true,
-      url: session.url,
-    });
   } catch (error) {
     console.error("Subscription error:", error);
     res.status(500).json({
