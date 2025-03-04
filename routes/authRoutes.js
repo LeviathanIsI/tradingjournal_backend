@@ -16,8 +16,24 @@ const sendEmail = async (to, subject, text) => {
 };
 
 // Generate JWT
-const generateToken = (id, googleAuth = false, rememberMe = false) => {
-  const expiresIn = rememberMe ? "5d" : "2h";
+const generateToken = (id, googleAuth = false, expireAt2AM = true) => {
+  let expiresIn;
+
+  if (expireAt2AM) {
+    // Calculate time until 2AM next day
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(2, 0, 0, 0);
+
+    // Calculate seconds until expiry - JWT requires seconds
+    const secondsUntil2AM = Math.floor((tomorrow - now) / 1000);
+    expiresIn = secondsUntil2AM;
+  } else {
+    // Default expiry (5 days)
+    expiresIn = "5d";
+  }
+
   return jwt.sign({ id, googleAuth }, process.env.JWT_SECRET, {
     expiresIn,
   });
@@ -248,7 +264,13 @@ router.post("/cancel-subscription", protect, async (req, res) => {
 // @desc    Register user
 router.post("/register", async (req, res) => {
   try {
-    const { username, email, password, securityQuestions } = req.body;
+    const {
+      username,
+      email,
+      password,
+      securityQuestions,
+      expireAt2AM = true,
+    } = req.body;
 
     if (await User.findOne({ email })) {
       return res.status(400).json({
@@ -284,7 +306,7 @@ router.post("/register", async (req, res) => {
         username: user.username,
         email: user.email,
         aiRequestLimits: user.aiRequestLimits,
-        token: generateToken(user._id),
+        token: generateToken(user._id, false, expireAt2AM),
       },
     });
   } catch (error) {
@@ -297,7 +319,7 @@ router.post("/register", async (req, res) => {
 
 router.post("/login", async (req, res) => {
   try {
-    const { email, password, rememberMe } = req.body;
+    const { email, password, expireAt2AM = true } = req.body;
 
     const user = await User.findOne({ email }).select("+password");
 
@@ -318,7 +340,7 @@ router.post("/login", async (req, res) => {
         googleAuth: user.googleAuth,
         specialAccess: user.specialAccess,
         aiRequestLimits: user.aiRequestLimits,
-        token: generateToken(user._id, user.googleAuth, rememberMe),
+        token: generateToken(user._id, user.googleAuth, expireAt2AM),
       },
     });
   } catch (error) {
@@ -1039,11 +1061,17 @@ router.put("/set-password", protect, async (req, res) => {
 // Single Google OAuth initialization route
 router.get(
   "/google",
+  (req, res, next) => {
+    // Save the expireAt2AM preference in the session or state if needed
+    const expireAt2AM = req.query.expireAt2AM === "true";
+    // You might need to store this in a session or modify the auth state
+    next();
+  },
   passport.authenticate("google", {
     scope: ["profile", "email"],
     session: false,
-    prompt: "select_account", // Force account selection
-    accessType: "online", // Don't persist access
+    prompt: "select_account",
+    accessType: "online",
   })
 );
 
@@ -1064,11 +1092,10 @@ router.get(
         throw new Error("No user returned from authentication.");
       }
 
-      const token = jwt.sign(
-        { id: req.user._id, googleAuth: true },
-        process.env.JWT_SECRET,
-        { expiresIn: "2h" }
-      );
+      // Check if expireAt2AM was requested in the original auth request
+      // This comes from the query param you'd add to the Google auth URL
+      const expireAt2AM = req.query.expireAt2AM === "true";
+      const token = generateToken(req.user._id, true, expireAt2AM);
 
       const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
       res.redirect(`${FRONTEND_URL}/auth/google/success?token=${token}`);
@@ -1102,8 +1129,7 @@ router.get("/google/success", async (req, res) => {
       throw new Error("User not found");
     }
 
-    const rememberMe = req.query.rememberMe === "true";
-
+    // We're handling a token from the callback, so maintain the same expiry as what was set there
     res.json({
       success: true,
       data: {
@@ -1112,7 +1138,7 @@ router.get("/google/success", async (req, res) => {
         email: user.email,
         preferences: user.preferences,
         googleAuth: user.googleAuth,
-        token: generateToken(user._id, user.googleAuth, rememberMe),
+        token: token, // Just pass through the same token that was received
       },
     });
   } catch (error) {

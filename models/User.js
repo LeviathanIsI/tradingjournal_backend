@@ -183,8 +183,8 @@ const userSchema = new mongoose.Schema(
       completed: { type: Boolean, default: false },
     },
     aiRequestLimits: {
-      weeklyLimit: { type: Number, default: 5 }, // Default limit of 5 requests per week
-      remainingRequests: { type: Number, default: 5 }, // Requests remaining this week
+      weeklyLimit: { type: Number, default: 5 },
+      remainingRequests: { type: Number, default: 5 },
       nextResetDate: {
         type: Date,
         default: function () {
@@ -205,7 +205,7 @@ const userSchema = new mongoose.Schema(
           return nextMonday;
         },
       },
-      totalRequestsUsed: { type: Number, default: 0 }, // Track total usage for analytics
+      totalRequestsUsed: { type: Number, default: 0 },
     },
   },
   {
