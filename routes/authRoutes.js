@@ -76,6 +76,7 @@ router.post("/webhook", async (req, res) => {
             paymentStatus: "succeeded",
           };
 
+          
           await user.save();
         } catch (subError) {
           console.error("Error retrieving subscription:", subError);
@@ -1160,51 +1161,125 @@ router.get("/google/success", async (req, res) => {
 // Update the delete account route in authRoutes.js
 // In authRoutes.js
 router.delete("/delete-account", protect, async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const userId = req.user._id;
+    const user = await User.findById(req.user._id).select(
+      "+securityQuestions.question1.answer +securityQuestions.question2.answer +securityQuestions.question3.answer"
+    );
 
-    // 1. Delete all trade reviews created by this user
-    await TradeReview.deleteMany({ user: userId });
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
 
-    // 2. Delete all trade plans created by this user
-    await TradePlan.deleteMany({ user: userId });
+    // Only verify security questions if user has them (non-Google auth users)
+    if (!user.googleAuth && user.securityQuestions) {
+      const { answers } = req.body;
 
-    // 3. Delete all trades created by this user
-    await Trade.deleteMany({ user: userId });
-
-    // 4. If using Stripe, handle subscription cancellation
-    if (req.user.subscription?.stripeCustomerId) {
-      try {
-        // Cancel any active subscriptions but don't provide refunds
-        const subscriptions = await stripe.subscriptions.list({
-          customer: req.user.subscription.stripeCustomerId,
-          status: "active",
+      if (
+        !answers ||
+        !answers.answer1 ||
+        !answers.answer2 ||
+        !answers.answer3
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "All security questions must be answered.",
         });
+      }
 
-        for (const subscription of subscriptions.data) {
-          await stripe.subscriptions.update(subscription.id, {
-            cancel_at_period_end: true,
-          });
-        }
-      } catch (stripeError) {
-        console.error("Stripe error during account deletion:", stripeError);
+      // Verify each answer
+      const isAnswer1Correct = await user.verifySecurityAnswer(
+        "question1",
+        answers.answer1
+      );
+      const isAnswer2Correct = await user.verifySecurityAnswer(
+        "question2",
+        answers.answer2
+      );
+      const isAnswer3Correct = await user.verifySecurityAnswer(
+        "question3",
+        answers.answer3
+      );
+
+      if (!isAnswer1Correct || !isAnswer2Correct || !isAnswer3Correct) {
+        return res.status(401).json({
+          success: false,
+          error: "Incorrect security answers.",
+        });
       }
     }
 
-    // 5. Finally delete the user
-    await User.findByIdAndDelete(userId);
+    // Rest of the deletion logic remains the same...
 
-    res
-      .status(200)
-      .json({ success: true, message: "Account deleted successfully" });
+    // Store original username and create display name
+    const originalUsername = user.username;
+    const displayName = `Deleted User [${originalUsername}]`;
+
+    try {
+      await User.findByIdAndUpdate(
+        user._id,
+        {
+          $set: {
+            isDeleted: true,
+            email: null,
+            username: displayName,
+            password: undefined,
+            googleId: undefined,
+            googleAuth: undefined,
+            securityQuestions: undefined,
+            bio: "[Account Deleted]",
+            followers: [],
+            following: [],
+            deletedAt: new Date(),
+            preferences: {
+              defaultCurrency: "USD",
+              timeZone: "UTC",
+              startingCapital: 0,
+              experienceLevel: "auto",
+            },
+          },
+        },
+        { session }
+      );
+
+      // Update reviews with the new format
+      await TradeReview.updateMany(
+        { user: user._id },
+        {
+          $set: {
+            "metadata.originalUsername": originalUsername,
+            "metadata.userDisplayName": displayName,
+            "metadata.userDeleted": true,
+            "metadata.wasGoogleAuth": user.googleAuth, // Store if they were Google auth
+          },
+        },
+        { session }
+      );
+
+      await session.commitTransaction();
+      res.json({
+        success: true,
+        message: "Account successfully deleted",
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    }
   } catch (error) {
-    console.error("Error in delete account:", error);
-    res.status(500).json({ success: false, error: error.message });
+    await session.abortTransaction();
+    console.error("Account deletion error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
   }
 });
 
 // Create checkout session
-// Modified create-subscription route
 router.post("/create-subscription", protect, async (req, res) => {
   try {
     const { planType, isReactivation } = req.body;
@@ -1220,46 +1295,16 @@ router.post("/create-subscription", protect, async (req, res) => {
 
     // Create or get Stripe customer
     let customerId = user.subscription.stripeCustomerId;
-    let needNewCustomer = false;
-
-    // Check if we need to create a new customer
-    // This could be because:
-    // 1. No customer ID exists yet
-    // 2. The customer ID is from test mode (starts with 'cus_' and can't be found in live mode)
     if (!customerId) {
-      needNewCustomer = true;
-    } else {
-      try {
-        // Try to retrieve the customer to see if it exists in the current environment
-        await stripe.customers.retrieve(customerId);
-      } catch (stripeError) {
-        // If we get a "no such customer" error or any other error, create a new customer
-        console.log(`Customer retrieval error: ${stripeError.message}`);
-        needNewCustomer = true;
-      }
-    }
-
-    // Create a new customer if needed
-    if (needNewCustomer) {
-      try {
-        const customer = await stripe.customers.create({
-          email: user.email,
-          metadata: {
-            userId: user._id.toString(),
-          },
-        });
-        customerId = customer.id;
-        
-        // Save the new customer ID to the user record
-        user.subscription.stripeCustomerId = customerId;
-        await user.save();
-      } catch (createError) {
-        console.error("Error creating customer:", createError);
-        return res.status(500).json({
-          success: false,
-          error: "Failed to create customer",
-        });
-      }
+      const customer = await stripe.customers.create({
+        email: user.email,
+        metadata: {
+          userId: user._id.toString(),
+        },
+      });
+      customerId = customer.id;
+      user.subscription.stripeCustomerId = customerId;
+      await user.save();
     }
 
     // Create checkout session
