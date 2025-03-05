@@ -786,7 +786,40 @@ router.put("/profile/password", protect, async (req, res) => {
 // Add this to your validate endpoint temporarily
 router.get("/validate", protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select("-password");
+    // Fetch user with all necessary fields including specialAccess
+    const user = await User.findById(req.user._id)
+      .select("-password")
+      .select("+specialAccess"); // Explicitly select specialAccess field
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Ensure specialAccess is present
+    if (!user.specialAccess) {
+      user.specialAccess = {
+        hasAccess: false,
+        expiresAt: null,
+        reason: "other",
+      };
+      // Save the updated user document with default fields
+      await user.save();
+    }
+
+    // Also ensure subscription data is complete
+    if (!user.subscription) {
+      user.subscription = {
+        active: false,
+        type: null,
+        cancelAtPeriodEnd: false,
+        paymentStatus: "active",
+        failedPaymentAttempts: 0,
+      };
+      await user.save();
+    }
 
     res.json({
       success: true,
@@ -1249,7 +1282,7 @@ router.post("/create-subscription", protect, async (req, res) => {
           },
         });
         customerId = customer.id;
-        
+
         // Save the new customer ID to the user record
         user.subscription.stripeCustomerId = customerId;
         await user.save();
