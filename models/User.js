@@ -153,7 +153,11 @@ const userSchema = new mongoose.Schema(
     },
     subscription: {
       active: { type: Boolean, default: false },
-      type: { type: String, enum: ["monthly", "yearly", null], default: null },
+      type: {
+        type: String,
+        enum: ["free", "monthly", "yearly", null],
+        default: null,
+      },
       stripeCustomerId: { type: String },
       stripeSubscriptionId: { type: String },
       currentPeriodEnd: { type: Date },

@@ -40,6 +40,42 @@ const generateToken = (id, googleAuth = false, expireAt2AM = true) => {
   });
 };
 
+// Add this to authRoutes.js
+router.post("/set-free-tier", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Update subscription to free tier
+    user.subscription = {
+      ...user.subscription,
+      active: false,
+      type: "free",
+      cancelAtPeriodEnd: false,
+      paymentStatus: "succeeded",
+    };
+
+    await user.save();
+
+    res.json({
+      success: true,
+      data: user.subscription,
+    });
+  } catch (error) {
+    console.error("Error setting free tier:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // Stripe webhook handler
 router.post("/webhook", async (req, res) => {
   const sig = req.headers["stripe-signature"];
