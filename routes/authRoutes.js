@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const passport = require("passport");
 const User = require("../models/User");
 const Trade = require("../models/Trade");
+const OptionTrade = require("../models/OptionTrade");
 const { protect } = require("../middleware/authMiddleware");
 const TradeReview = require("../models/TradeReview");
 const mongoose = require("mongoose");
@@ -644,63 +645,199 @@ router.get("/leaderboard", protect, async (req, res) => {
       }
 
       if (startDate) {
-        dateFilter = { createdAt: { $gte: startDate } };
+        // Use the same date field that the dashboard uses
+        dateFilter = { exitDate: { $gte: startDate } };
       }
     }
 
     const traders = await User.find().select("-password -email").lean();
 
-    // Get stats for each trader with time frame filter
+    // Get stats for each trader
     const tradersWithStats = await Promise.all(
       traders.map(async (trader) => {
-        const stats = await Trade.aggregate([
-          {
-            $match: {
-              user: trader._id,
-              ...dateFilter,
-            },
-          },
-          {
-            $group: {
-              _id: null,
-              totalTrades: { $sum: 1 },
-              winningTrades: {
-                $sum: { $cond: [{ $gt: ["$profitLoss.realized", 0] }, 1, 0] },
-              },
-              totalProfit: { $sum: "$profitLoss.realized" },
-            },
-          },
-        ]);
+        const traderId = trader._id;
 
-        const traderStats = stats[0] || {
-          totalTrades: 0,
-          winningTrades: 0,
-          totalProfit: 0,
-        };
+        // For stock trades
+        const stockTrades = await Trade.find({
+          user: traderId,
+          status: "CLOSED",
+          ...dateFilter,
+        }).lean();
+
+        // For option trades
+        const optionTrades = await OptionTrade.find({
+          user: traderId,
+          status: "CLOSED",
+          ...dateFilter,
+        }).lean();
+
+        // Combine all trades
+        const allTrades = [...stockTrades, ...optionTrades];
+
+        if (allTrades.length === 0) {
+          return {
+            ...trader,
+            stats: {
+              totalTrades: 0,
+              winningTrades: 0,
+              losingTrades: 0,
+              totalProfit: 0,
+              winRate: 0,
+              winLossRatio: 0,
+            },
+          };
+        }
+
+        // Calculate stats
+        const winningTrades = allTrades.filter(
+          (t) => t.profitLoss.realized > 0
+        );
+        const losingTrades = allTrades.filter(
+          (t) => t.profitLoss.realized <= 0
+        );
+
+        const totalProfit = allTrades.reduce(
+          (sum, trade) => sum + trade.profitLoss.realized,
+          0
+        );
+        const winRate = (winningTrades.length / allTrades.length) * 100;
+        const winLossRatio =
+          losingTrades.length > 0
+            ? winningTrades.length / losingTrades.length
+            : winningTrades.length;
 
         return {
           ...trader,
           stats: {
-            ...traderStats,
-            winRate: traderStats.totalTrades
-              ? (
-                  (traderStats.winningTrades / traderStats.totalTrades) *
-                  100
-                ).toFixed(1)
-              : 0,
+            totalTrades: allTrades.length,
+            winningTrades: winningTrades.length,
+            losingTrades: losingTrades.length,
+            totalProfit: totalProfit,
+            winRate: parseFloat(winRate.toFixed(1)),
+            winLossRatio: parseFloat(winLossRatio.toFixed(2)),
           },
         };
       })
     );
 
+    // Sort by total profit (descending)
+    const sortedTraders = tradersWithStats.sort(
+      (a, b) => (b.stats?.totalProfit || 0) - (a.stats?.totalProfit || 0)
+    );
+
     res.json({
       success: true,
-      data: tradersWithStats,
+      data: sortedTraders,
     });
   } catch (error) {
+    console.error("Leaderboard error:", error);
     res.status(400).json({
       success: false,
       error: error.message,
+    });
+  }
+});
+
+// Add an endpoint to get the current user's stats that match the dashboard
+router.get("/me/stats", protect, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Get stock trades
+    const stockTrades = await Trade.find({
+      user: userId,
+      status: "CLOSED",
+    }).lean();
+
+    // Get option trades
+    const optionTrades = await OptionTrade.find({
+      user: userId,
+      status: "CLOSED",
+    }).lean();
+
+    // Combine all trades
+    const allTrades = [...stockTrades, ...optionTrades];
+
+    // Calculate stats the same way as the dashboard
+    const winningTrades = allTrades.filter((t) => t.profitLoss.realized > 0);
+    const losingTrades = allTrades.filter((t) => t.profitLoss.realized <= 0);
+
+    const totalProfit = allTrades.reduce(
+      (sum, trade) => sum + trade.profitLoss.realized,
+      0
+    );
+    const winRate =
+      allTrades.length > 0
+        ? (winningTrades.length / allTrades.length) * 100
+        : 0;
+    const winLossRatio =
+      losingTrades.length > 0
+        ? winningTrades.length / losingTrades.length
+        : winningTrades.length;
+
+    res.json({
+      success: true,
+      data: {
+        totalTrades: allTrades.length,
+        winningTrades: winningTrades.length,
+        losingTrades: losingTrades.length,
+        totalProfit: totalProfit,
+        winRate: parseFloat(winRate.toFixed(1)),
+        winLossRatio: parseFloat(winLossRatio.toFixed(2)),
+      },
+    });
+  } catch (error) {
+    console.error("Stats error:", error);
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Add this route to debug leaderboard issues
+router.get("/leaderboard-debug", protect, async (req, res) => {
+  try {
+    // Log user information
+    console.log("User requesting debug:", req.user._id);
+
+    // Check if OptionTrade model exists
+    console.log("OptionTrade model exists:", !!OptionTrade);
+
+    // Count users
+    const userCount = await User.countDocuments();
+    console.log("Total users:", userCount);
+
+    // Count trades
+    const tradeCount = await Trade.countDocuments();
+    console.log("Total trades:", tradeCount);
+
+    // Count option trades
+    const optionTradeCount = await OptionTrade.countDocuments();
+    console.log("Total option trades:", optionTradeCount);
+
+    // Test a simple aggregation
+    const testAggregation = await Trade.aggregate([
+      { $match: { user: req.user._id } },
+      { $count: "userTradeCount" },
+    ]);
+    console.log("Test aggregation:", testAggregation);
+
+    res.json({
+      success: true,
+      debug: {
+        userCount,
+        tradeCount,
+        optionTradeCount,
+        testAggregation,
+      },
+    });
+  } catch (error) {
+    console.error("Debug error:", error);
+    res.status(400).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
     });
   }
 });
