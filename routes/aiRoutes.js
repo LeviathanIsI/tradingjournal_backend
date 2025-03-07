@@ -219,33 +219,68 @@ router.post(
   Format the response with clear section headers, bullet points for details, and use markdown formatting. Address ${username} directly in your analysis.
 `;
 
-      // Send request to OpenAI API
-      const response = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 1000,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
+      // Send request to OpenAI API with timeout
+      try {
+        const response = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            model: "gpt-4o",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 1000,
           },
-        }
-      );
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000, // 30 second timeout
+          }
+        );
 
-      res.json({
-        success: true,
-        analysis: response.data.choices[0].message.content,
-        estimatedSeconds: 25,
-        aiLimits: req.aiLimits,
-      });
+        res.json({
+          success: true,
+          analysis: response.data.choices[0].message.content,
+          estimatedSeconds: 25,
+          aiLimits: req.aiLimits,
+        });
+      } catch (openAiError) {
+        // Check for timeout or rate limiting errors
+        if (
+          openAiError.code === "ECONNABORTED" ||
+          (openAiError.response && openAiError.response.status === 429) ||
+          openAiError.message.includes("timeout")
+        ) {
+          return res.status(503).json({
+            success: false,
+            error:
+              "AI service temporarily unavailable. Please try again in a moment.",
+            retryAfter: 5, // Suggest retry after 5 seconds
+          });
+        }
+
+        // OpenAI specific errors
+        if (
+          openAiError.response &&
+          openAiError.response.data &&
+          openAiError.response.data.error
+        ) {
+          console.error("OpenAI API Error:", openAiError.response.data.error);
+          return res.status(500).json({
+            success: false,
+            error: `AI service error: ${
+              openAiError.response.data.error.message || "Unknown error"
+            }`,
+          });
+        }
+
+        // Re-throw for general error handling
+        throw openAiError;
+      }
     } catch (error) {
       console.error("AI Weekly Analysis Error:", error);
       res.status(500).json({
         success: false,
-        error: "Failed to analyze weekly trades.",
+        error: "Failed to analyze weekly trades. Please try again.",
       });
     }
   }
@@ -263,7 +298,6 @@ function getDateOfISOWeek(week, year) {
   }
   return ISOweekStart;
 }
-
 // New endpoint for Smart Trade Coaching
 router.post(
   "/analyze-trade/:tradeId",
@@ -361,33 +395,61 @@ router.post(
     Format the response using markdown with clear section headers and bullet points for readability. Address ${username} directly in your coaching feedback.
 `;
 
-      // Send request to OpenAI API
-      const response = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 1000,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
+      try {
+        // Send request to OpenAI API with timeout
+        const response = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            model: "gpt-4o",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 1000,
           },
-        }
-      );
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000, // 30 second timeout
+          }
+        );
 
-      res.json({
-        success: true,
-        tradeAnalysis: response.data.choices[0].message.content,
-        estimatedSeconds: 20,
-        aiLimits: req.aiLimits,
-      });
+        res.json({
+          success: true,
+          tradeAnalysis: response.data.choices[0].message.content,
+          estimatedSeconds: 20,
+          aiLimits: req.aiLimits,
+        });
+      } catch (openAiError) {
+        // Check for timeout or rate limiting errors
+        if (
+          openAiError.code === 'ECONNABORTED' || 
+          (openAiError.response && openAiError.response.status === 429) ||
+          openAiError.message.includes('timeout')
+        ) {
+          return res.status(503).json({
+            success: false,
+            error: "AI service temporarily unavailable. Please try again in a moment.",
+            retryAfter: 5,
+          });
+        }
+        
+        // OpenAI specific errors
+        if (openAiError.response && openAiError.response.data && openAiError.response.data.error) {
+          console.error("OpenAI API Error:", openAiError.response.data.error);
+          return res.status(500).json({
+            success: false,
+            error: `AI service error: ${openAiError.response.data.error.message || 'Unknown error'}`,
+          });
+        }
+        
+        // Re-throw for general error handling
+        throw openAiError;
+      }
     } catch (error) {
       console.error("AI Trade Analysis Error:", error);
       res.status(500).json({
         success: false,
-        error: "Failed to analyze trade.",
+        error: "Failed to analyze trade. Please try again.",
       });
     }
   }
@@ -659,40 +721,68 @@ router.post(
     Format your response using markdown with clear section headers and bullet points for readability. Address ${username} directly in your analysis and recommendations.
 `;
 
-      // Send request to OpenAI
-      const response = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 1000,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
+      try {
+        // Send request to OpenAI with timeout
+        const response = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            model: "gpt-4o",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 1000,
           },
-        }
-      );
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000, // 30 second timeout
+          }
+        );
 
-      res.json({
-        success: true,
-        analysis: response.data.choices[0].message.content,
-        data: {
-          symbolStats,
-          setupStats,
-          timeOfDayStats,
-          dayOfWeekStats,
-          holdingTimeStats,
-          estimatedSeconds: 25,
-          aiLimits: req.aiLimits,
-        },
-      });
+        res.json({
+          success: true,
+          analysis: response.data.choices[0].message.content,
+          data: {
+            symbolStats,
+            setupStats,
+            timeOfDayStats,
+            dayOfWeekStats,
+            holdingTimeStats,
+            estimatedSeconds: 25,
+            aiLimits: req.aiLimits,
+          },
+        });
+      } catch (openAiError) {
+        // Check for timeout or rate limiting errors
+        if (
+          openAiError.code === 'ECONNABORTED' || 
+          (openAiError.response && openAiError.response.status === 429) ||
+          openAiError.message.includes('timeout')
+        ) {
+          return res.status(503).json({
+            success: false,
+            error: "AI service temporarily unavailable. Please try again in a moment.",
+            retryAfter: 5,
+          });
+        }
+        
+        // OpenAI specific errors
+        if (openAiError.response && openAiError.response.data && openAiError.response.data.error) {
+          console.error("OpenAI API Error:", openAiError.response.data.error);
+          return res.status(500).json({
+            success: false,
+            error: `AI service error: ${openAiError.response.data.error.message || 'Unknown error'}`,
+          });
+        }
+        
+        // Re-throw for general error handling
+        throw openAiError;
+      }
     } catch (error) {
       console.error("AI Pattern Analysis Error:", error);
       res.status(500).json({
         success: false,
-        error: "Failed to analyze trading patterns.",
+        error: "Failed to analyze trading patterns. Please try again.",
       });
     }
   }
@@ -839,44 +929,72 @@ router.post(
     6. Use standard bullet points with a single asterisk (*)
     `;
 
-      // Send request to OpenAI
-      const response = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 1500,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
+      try {
+        // Send request to OpenAI API with timeout
+        const response = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            model: "gpt-4o",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 1500,
           },
-        }
-      );
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000, // 30 second timeout
+          }
+        );
 
-      res.json({
-        success: true,
-        analysis: response.data.choices[0].message.content,
-        tradeDetails: {
-          symbol,
-          entryPrice: trade.entryPrice,
-          exitPrice: trade.exitPrice,
-          entryDate: formattedEntryDate,
-          exitDate: formattedExitDate,
-          profitLoss: actualProfitLoss,
-          percentage: actualPercentage,
-          holdingTime: holdingTimeHours,
-          tradeType: trade.type,
-          estimatedSeconds: getEstimatedResponseTime(type, holdingTimeMs),
-          aiLimits: req.aiLimits,
-        },
-      });
+        res.json({
+          success: true,
+          analysis: response.data.choices[0].message.content,
+          tradeDetails: {
+            symbol,
+            entryPrice: trade.entryPrice,
+            exitPrice: trade.exitPrice,
+            entryDate: formattedEntryDate,
+            exitDate: formattedExitDate,
+            profitLoss: actualProfitLoss,
+            percentage: actualPercentage,
+            holdingTime: holdingTimeHours,
+            tradeType: trade.type,
+            estimatedSeconds: getEstimatedResponseTime(type, holdingTimeMs),
+            aiLimits: req.aiLimits,
+          },
+        });
+      } catch (openAiError) {
+        // Check for timeout or rate limiting errors
+        if (
+          openAiError.code === 'ECONNABORTED' || 
+          (openAiError.response && openAiError.response.status === 429) ||
+          openAiError.message.includes('timeout')
+        ) {
+          return res.status(503).json({
+            success: false,
+            error: "AI service temporarily unavailable. Please try again in a moment.",
+            retryAfter: 5,
+          });
+        }
+        
+        // OpenAI specific errors
+        if (openAiError.response && openAiError.response.data && openAiError.response.data.error) {
+          console.error("OpenAI API Error:", openAiError.response.data.error);
+          return res.status(500).json({
+            success: false,
+            error: `AI service error: ${openAiError.response.data.error.message || 'Unknown error'}`,
+          });
+        }
+        
+        // Re-throw for general error handling
+        throw openAiError;
+      }
     } catch (error) {
       console.error("Predictive Analysis Error:", error);
       res.status(500).json({
         success: false,
-        error: "Failed to analyze predictive scenario.",
+        error: "Failed to analyze predictive scenario. Please try again.",
       });
     }
   }
@@ -1165,6 +1283,7 @@ router.post(
               Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
               "Content-Type": "application/json",
             },
+            timeout: 45000, // 45 second timeout (longer for complex task)
           }
         );
 
@@ -1231,22 +1350,30 @@ router.post(
       } catch (openAiError) {
         console.error("OpenAI API Error:", openAiError);
 
-        // More specific error message based on the error type
-        let errorMessage = "Failed to analyze trade execution.";
-
-        if (openAiError.response && openAiError.response.data) {
-          console.error(
-            "OpenAI API Error details:",
-            JSON.stringify(openAiError.response.data)
-          );
-          if (openAiError.response.data.error) {
-            errorMessage = `OpenAI API error: ${
-              openAiError.response.data.error.message ||
-              openAiError.response.data.error
-            }`;
-          }
+        // Check for timeout or rate limiting errors
+        if (
+          openAiError.code === 'ECONNABORTED' || 
+          (openAiError.response && openAiError.response.status === 429) ||
+          openAiError.message.includes('timeout')
+        ) {
+          return res.status(503).json({
+            success: false,
+            error: "AI service temporarily unavailable. Please try again in a moment.",
+            retryAfter: 10, // Suggest longer retry time for complex analysis
+          });
+        }
+        
+        // OpenAI specific errors
+        if (openAiError.response && openAiError.response.data && openAiError.response.data.error) {
+          console.error("OpenAI API Error details:", JSON.stringify(openAiError.response.data));
+          return res.status(500).json({
+            success: false,
+            error: `AI service error: ${openAiError.response.data.error.message || 'Unknown error'}`,
+          });
         }
 
+        // More specific error message based on the error type
+        let errorMessage = "Failed to analyze trade execution.";
         res.status(500).json({
           success: false,
           error: errorMessage,
@@ -1400,63 +1527,91 @@ Format your response as JSON with the following structure:
 }
 `;
 
-      // Send request to OpenAI API
-      const response = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-4o",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 1500,
-          response_format: { type: "json_object" },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      // Parse the JSON response
-      let simulationData;
       try {
-        simulationData = JSON.parse(response.data.choices[0].message.content);
+        // Send request to OpenAI API with timeout
+        const response = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            model: "gpt-4o",
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: 1500,
+            response_format: { type: "json_object" },
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 40000, // 40 second timeout for this complex task
+          }
+        );
 
-        if (
-          !simulationData.optimalEntryStrategy ||
-          !simulationData.entryPoints ||
-          !simulationData.positionSizing ||
-          !simulationData.stopLossStrategy ||
-          !simulationData.exitStrategyOptimization ||
-          !simulationData.scenarios
-        ) {
-          console.warn(
-            "Incomplete simulation data from OpenAI:",
-            simulationData
-          );
+        // Parse the JSON response
+        let simulationData;
+        try {
+          simulationData = JSON.parse(response.data.choices[0].message.content);
+
+          if (
+            !simulationData.optimalEntryStrategy ||
+            !simulationData.entryPoints ||
+            !simulationData.positionSizing ||
+            !simulationData.stopLossStrategy ||
+            !simulationData.exitStrategyOptimization ||
+            !simulationData.scenarios
+          ) {
+            console.warn(
+              "Incomplete simulation data from OpenAI:",
+              simulationData
+            );
+          }
+        } catch (parseError) {
+          console.error("Failed to parse OpenAI response as JSON:", parseError);
+          simulationData = { error: "Failed to parse AI response" };
         }
-      } catch (error) {
-        console.error("Failed to parse OpenAI response as JSON:", error);
-        simulationData = { error: "Failed to parse AI response" };
-      }
 
-      res.json({
-        success: true,
-        simulation: simulationData,
-        tradeHistory: {
-          totalTrades: allTrades.length,
-          winRate: winRate,
-          avgWin: avgWinAmount,
-          avgLoss: avgLossAmount,
-        },
-        aiLimits: req.aiLimits,
-        estimatedSeconds: 30,
-      });
+        res.json({
+          success: true,
+          simulation: simulationData,
+          tradeHistory: {
+            totalTrades: allTrades.length,
+            winRate: winRate,
+            avgWin: avgWinAmount,
+            avgLoss: avgLossAmount,
+          },
+          aiLimits: req.aiLimits,
+          estimatedSeconds: 30,
+        });
+      } catch (openAiError) {
+        // Check for timeout or rate limiting errors
+        if (
+          openAiError.code === 'ECONNABORTED' || 
+          (openAiError.response && openAiError.response.status === 429) ||
+          openAiError.message.includes('timeout')
+        ) {
+          return res.status(503).json({
+            success: false,
+            error: "AI service temporarily unavailable. Please try again in a moment.",
+            retryAfter: 8, // Suggest retry after 8 seconds
+          });
+        }
+        
+        // OpenAI specific errors
+        if (openAiError.response && openAiError.response.data && openAiError.response.data.error) {
+          console.error("OpenAI API Error:", openAiError.response.data.error);
+          return res.status(500).json({
+            success: false,
+            error: `AI service error: ${openAiError.response.data.error.message || 'Unknown error'}`,
+          });
+        }
+        
+        // Re-throw for general error handling
+        throw openAiError;
+      }
     } catch (error) {
       console.error("AI Trading Bot Simulator Error:", error);
       res.status(500).json({
         success: false,
-        error: "Failed to generate trading simulation.",
+        error: "Failed to generate trading simulation. Please try again.",
       });
     }
   }
