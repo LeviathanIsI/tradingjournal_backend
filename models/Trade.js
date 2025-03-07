@@ -243,18 +243,20 @@ tradeSchema.pre("save", function (next) {
 // Validate day trade dates
 tradeSchema.pre("save", function (next) {
   if (this.tradeType === "DAY" && this.exitDate) {
-    const entryDate = new Date(this.entryDate);
-    const exitDate = new Date(this.exitDate);
+    // If a validation field exists, use it for validation
+    if (this._validationSameDayAs) {
+      // We're allowing this special case
+      this._validationSameDayAs = undefined; // Remove before saving
+    } else {
+      // Original 24-hour validation for all other cases
+      const entryDate = new Date(this.entryDate);
+      const exitDate = new Date(this.exitDate);
+      const hoursDifference = Math.abs(exitDate - entryDate) / (1000 * 60 * 60);
 
-    // Compare UTC dates (year, month, day only)
-    const isSameDay =
-      entryDate.getUTCFullYear() === exitDate.getUTCFullYear() &&
-      entryDate.getUTCMonth() === exitDate.getUTCMonth() &&
-      entryDate.getUTCDate() === exitDate.getUTCDate();
-
-    if (!isSameDay) {
-      next(new Error("Day trades must have entry and exit on the same day"));
-      return;
+      if (hoursDifference > 24) {
+        next(new Error("Day trades must have entry and exit within 24 hours"));
+        return;
+      }
     }
   }
   next();
