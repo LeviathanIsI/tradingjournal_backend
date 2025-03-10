@@ -305,7 +305,7 @@ userSchema.pre("save", async function (next) {
 });
 
 // Add method to verify security answers
-userSchema.methods.veriffySecurityAnswer = async function (
+userSchema.methods.verifySecurityAnswer = async function (
   questionKey,
   answer
 ) {

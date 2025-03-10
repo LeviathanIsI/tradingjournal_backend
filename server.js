@@ -13,6 +13,7 @@ const aiRoutes = require("./routes/aiRoutes");
 const { scheduleFeaturedReviews } = require("./schedulers/index");
 connectDB();
 const studyGroupRoutes = require("./routes/studyGroupRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 const app = express();
 
@@ -92,6 +93,7 @@ app.use("/api/trade-plans", tradePlanRoutes);
 app.use("/api/trade-reviews", tradeReviewRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/study-groups", studyGroupRoutes);
+app.use("/api/notifications", notificationRoutes);
 app.use(passport.initialize());
 
 // Initialize schedulers

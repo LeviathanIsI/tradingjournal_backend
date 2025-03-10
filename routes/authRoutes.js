@@ -1717,6 +1717,7 @@ router.get("/me/special-access", protect, async (req, res) => {
     res.json({
       success: true,
       hasSpecialAccess,
+      reason: user.specialAccess ? user.specialAccess.reason : null,
     });
   } catch (error) {
     console.error("Error checking special access:", error);
