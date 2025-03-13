@@ -834,30 +834,21 @@ router.get("/me/stats", protect, async (req, res) => {
 // Add this route to debug leaderboard issues
 router.get("/leaderboard-debug", protect, async (req, res) => {
   try {
-    // Log user information
-    console.log("User requesting debug:", req.user._id);
-
-    // Check if OptionTrade model exists
-    console.log("OptionTrade model exists:", !!OptionTrade);
 
     // Count users
     const userCount = await User.countDocuments();
-    console.log("Total users:", userCount);
 
     // Count trades
     const tradeCount = await Trade.countDocuments();
-    console.log("Total trades:", tradeCount);
 
     // Count option trades
     const optionTradeCount = await OptionTrade.countDocuments();
-    console.log("Total option trades:", optionTradeCount);
 
     // Test a simple aggregation
     const testAggregation = await Trade.aggregate([
       { $match: { user: req.user._id } },
       { $count: "userTradeCount" },
     ]);
-    console.log("Test aggregation:", testAggregation);
 
     res.json({
       success: true,
@@ -1440,7 +1431,6 @@ router.post("/create-subscription", protect, async (req, res) => {
         await stripe.customers.retrieve(customerId);
       } catch (stripeError) {
         // If we get a "no such customer" error or any other error, create a new customer
-        console.log(`Customer retrieval error: ${stripeError.message}`);
         needNewCustomer = true;
       }
     }
@@ -1724,6 +1714,33 @@ router.get("/me/special-access", protect, async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Server error",
+    });
+  }
+});
+
+router.get("/public-settings", async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+    if (!settings) throw new Error("Settings not found");
+
+    res.json({
+      success: true,
+      data: {
+        maintenanceMode: settings.maintenanceMode,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching public settings:", error);
+
+    // Return fallback settings instead of crashing
+    res.status(200).json({
+      success: false,
+      data: {
+        maintenanceMode: {
+          enabled: false,
+          message: "Default maintenance message.",
+        },
+      },
     });
   }
 });
