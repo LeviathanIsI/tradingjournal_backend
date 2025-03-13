@@ -10,10 +10,13 @@ const optionTradeRoutes = require("./routes/optionTradeRoutes");
 const tradePlanRoutes = require("./routes/tradePlanRoutes");
 const tradeReviewRoutes = require("./routes/tradeReviewRoutes");
 const aiRoutes = require("./routes/aiRoutes");
+const maintenanceMiddleware = require("./middleware/maintenanceMiddleware");
+const featureFlagsMiddleware = require("./middleware/featureFlagsMiddleware");
 const { scheduleFeaturedReviews } = require("./schedulers/index");
 connectDB();
 const studyGroupRoutes = require("./routes/studyGroupRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
 const app = express();
 
@@ -85,6 +88,13 @@ app.use((req, res, next) => {
 // Configure passport
 require("./config/passport");
 
+// Apply maintenance mode middleware BEFORE routes
+// This ensures maintenance mode is checked before any API calls
+app.use(maintenanceMiddleware);
+
+// Apply feature flags middleware
+app.use(featureFlagsMiddleware);
+
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/trades", tradeRoutes);
@@ -94,6 +104,7 @@ app.use("/api/trade-reviews", tradeReviewRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/study-groups", studyGroupRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/admin", adminRoutes);
 app.use(passport.initialize());
 
 // Initialize schedulers

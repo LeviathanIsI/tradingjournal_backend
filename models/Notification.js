@@ -6,38 +6,42 @@ const notificationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
     title: {
       type: String,
       required: true,
-      trim: true,
     },
-    message: {
+    content: {
       type: String,
       required: true,
-      trim: true,
     },
     type: {
       type: String,
-      enum: ["system", "message", "invite", "trade", "group", "update"],
+      enum: ["announcement", "alert", "update", "personal", "system"],
       default: "system",
+    },
+    priority: {
+      type: String,
+      enum: ["low", "normal", "high"],
+      default: "normal",
     },
     read: {
       type: Boolean,
       default: false,
     },
-    linkTo: {
-      type: String,
-      default: null,
+    sender: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
     },
-    meta: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+    adminMessage: {
+      type: Boolean,
+      default: false,
+    },
+    link: {
+      type: String,
     },
     expiresAt: {
       type: Date,
-      default: () => new Date(+new Date() + 30 * 24 * 60 * 60 * 1000), // Default expiry: 30 days
     },
   },
   {
@@ -45,30 +49,11 @@ const notificationSchema = new mongoose.Schema(
   }
 );
 
-// Create TTL index on expiresAt field to automatically delete expired notifications
+// Add index for performance
+notificationSchema.index({ user: 1, read: 1 });
+
+// Create TTL index for expiring notifications
 notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-// Add static methods
-notificationSchema.statics.createNotification = async function (data) {
-  return await this.create(data);
-};
-
-notificationSchema.statics.markAsRead = async function (id, userId) {
-  return await this.findOneAndUpdate(
-    { _id: id, user: userId },
-    { read: true },
-    { new: true }
-  );
-};
-
-notificationSchema.statics.markAllAsRead = async function (userId) {
-  return await this.updateMany({ user: userId, read: false }, { read: true });
-};
-
-notificationSchema.statics.getUnreadCount = async function (userId) {
-  return await this.countDocuments({ user: userId, read: false });
-};
-
 const Notification = mongoose.model("Notification", notificationSchema);
-
 module.exports = Notification;
